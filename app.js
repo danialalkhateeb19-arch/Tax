@@ -30,12 +30,12 @@ import {
  * Project settings → General → Your apps → SDK setup and configuration
  * ===================================================================== */
 const firebaseConfig = {
-  apiKey: 'AIzaSyBobE8lKAbk3RiAemd_NoTMY3avuIjmls0',
-  authDomain: 'tax-ead55.firebaseapp.com',
-  projectId: 'tax-ead55',
-  storageBucket: 'tax-ead55.firebasestorage.app',
-  messagingSenderId: '89212945458',
-  appId: '1:89212945458:web:6dded1935a102dd600e82b',
+  apiKey: 'ضع_مفتاحك_هنا',
+  authDomain: 'ضع_مشروعك.firebaseapp.com',
+  projectId: 'ضع_معرف_المشروع',
+  storageBucket: 'ضع_مشروعك.appspot.com',
+  messagingSenderId: 'ضع_الرقم_هنا',
+  appId: 'ضع_معرف_التطبيق',
 };
 
 const app = initializeApp(firebaseConfig);
@@ -50,12 +50,14 @@ const db = initializeFirestore(app, {
 // المستخدم (uid) — لأن مسار بياناته يعتمد على هذه الهوية تحديداً.
 let txCollection;
 let priceCollection;
+let bondInfoCollection;
 
 /* =====================================================================
  * الحالة العامة
  * ===================================================================== */
 let transactions = []; // [{ id, type: 'buy'|'sell', symbol, date, qty, price, commission }]
 let prices = {}; // { symbol: currentPrice }
+let bondInfo = {}; // { symbol: { maturityDate, couponValue, paymentsPerYear } }
 let selectedType = 'buy';
 
 /* =====================================================================
@@ -214,6 +216,11 @@ function renderHoldings() {
               data-price-symbol="${escapeAttr(h.symbol)}"
             />
           </div>
+          ${
+            bondInfo[h.symbol]
+              ? `<div class="holding-qty">تاريخ الاستحقاق: ${bondInfo[h.symbol].maturityDate ?? '—'} · قيمة الكوبون: ${bondInfo[h.symbol].couponValue ?? '—'} · دفعات/سنة: ${bondInfo[h.symbol].paymentsPerYear ?? '—'}</div>`
+              : ''
+          }
         </div>`;
     })
     .join('');
@@ -221,6 +228,84 @@ function renderHoldings() {
   container.querySelectorAll('[data-price-symbol]').forEach((input) => {
     input.addEventListener('change', onPriceChange);
   });
+}
+
+async function fetchMoexBondInfo(symbol) {
+  const boards = ['TQOB', 'TQCB', 'TQIR'];
+  for (const board of boards) {
+    try {
+      const url = `https://iss.moex.com/iss/engines/stock/markets/bonds/boards/${board}/securities/${encodeURIComponent(symbol)}.json?iss.meta=off`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const cols = json?.description?.columns;
+      const rows = json?.description?.data;
+      if (!Array.isArray(cols) || !Array.isArray(rows)) continue;
+
+      const nameIdx = cols.indexOf('name');
+      const valueIdx = cols.indexOf('value');
+      if (nameIdx === -1 || valueIdx === -1) continue;
+
+      const fields = {};
+      rows.forEach((r) => (fields[r[nameIdx]] = r[valueIdx]));
+
+      const maturityDate = /^\d{4}-\d{2}-\d{2}$/.test(fields['MATDATE']) ? fields['MATDATE'] : null;
+      const couponValue = fields['COUPONVALUE'] !== undefined ? parseFloat(fields['COUPONVALUE']) : null;
+      const couponPeriod = fields['COUPONPERIOD'] !== undefined ? parseFloat(fields['COUPONPERIOD']) : null;
+      const paymentsPerYear = couponPeriod ? Math.round(365 / couponPeriod) : null;
+
+      if (!maturityDate && couponValue === null) continue;
+      return { maturityDate, couponValue, paymentsPerYear };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function saveMoexBondInfoIfFound(symbol) {
+  if (!bondInfoCollection) return;
+  const info = await fetchMoexBondInfo(symbol);
+  if (!info) return;
+  try {
+    await setDoc(doc(bondInfoCollection, symbol), { symbol, ...info, updatedAt: serverTimestamp() });
+  } catch {
+    // تجاهل بصمت
+  }
+}
+
+async function fetchMoexPrice(symbol) {
+  const boards = ['TQOB', 'TQCB', 'TQIR'];
+  for (const board of boards) {
+    try {
+      const url = `https://iss.moex.com/iss/engines/stock/markets/bonds/boards/${board}/securities/${encodeURIComponent(symbol)}.json?iss.meta=off`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const cols = json?.marketdata?.columns;
+      const rows = json?.marketdata?.data;
+      if (!Array.isArray(cols) || !Array.isArray(rows) || !rows[0]) continue;
+      const idx = cols.indexOf('LAST');
+      const last = idx !== -1 ? rows[0][idx] : null;
+      if (last !== null && last !== undefined && !Number.isNaN(parseFloat(last))) {
+        return parseFloat(last);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function saveMoexPriceIfFound(symbol) {
+  if (!priceCollection) return;
+  const price = await fetchMoexPrice(symbol);
+  if (price === null) return;
+  try {
+    await setDoc(doc(priceCollection, symbol), { symbol, currentPrice: price, updatedAt: serverTimestamp() });
+  } catch {
+    // تجاهل بصمت — يبقى الإدخال اليدوي متاحاً
+  }
 }
 
 async function onPriceChange(e) {
@@ -378,6 +463,8 @@ txForm.addEventListener('submit', async (e) => {
     showToast(selectedType === 'buy' ? 'تم حفظ عملية الشراء' : 'تم حفظ عملية البيع');
     txForm.reset();
     document.getElementById('txDate').value = todayISO();
+    saveMoexPriceIfFound(symbol);
+    saveMoexBondInfoIfFound(symbol);
   } catch (err) {
     showToast('تعذّر الحفظ: ' + err.message, true);
   } finally {
@@ -440,6 +527,7 @@ function startListening(uid) {
   const userDataPath = `users/${uid}/bondTracker`;
   txCollection = collection(db, userDataPath, 'data', 'transactions');
   priceCollection = collection(db, userDataPath, 'data', 'prices');
+  bondInfoCollection = collection(db, userDataPath, 'data', 'bondInfo');
 
   onSnapshot(
     txCollection,
@@ -471,6 +559,18 @@ function startListening(uid) {
       renderHoldings();
     },
     (err) => showToast('خطأ في مزامنة الأسعار: ' + err.message, true),
+  );
+
+  onSnapshot(
+    bondInfoCollection,
+    (snap) => {
+      bondInfo = {};
+      snap.docs.forEach((d) => {
+        bondInfo[d.id] = d.data();
+      });
+      renderHoldings();
+    },
+    (err) => showToast('خطأ في مزامنة بيانات الاستحقاق: ' + err.message, true),
   );
 }
 
