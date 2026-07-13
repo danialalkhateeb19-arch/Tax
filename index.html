@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0" />
+  <title>سنداتي — إدارة السندات الشخصية</title>
+  <meta name="description" content="تطبيق شخصي لتسجيل عمليات شراء وبيع السندات ومتابعة الأرباح" />
+
+  <!-- PWA -->
+  <meta name="theme-color" content="#1E3A8A" />
+  <meta name="color-scheme" content="light" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="سنداتي" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ==================================================== الشريط العلوي -->
+  <header class="app-header">
+    <h1>سنداتي</h1>
+    <span id="statusDot" class="status-dot" title="متصل"></span>
+  </header>
+
+  <!-- ======================================================== التنبيهات -->
+  <div id="toast" class="toast hidden"></div>
+
+  <main>
+
+    <!-- ============================================== الصفحة الرئيسية -->
+    <section id="section-home" class="section active">
+
+      <!-- ملخص عام -->
+      <div class="card">
+        <h2><span class="icon">💰</span> الملخص</h2>
+        <div class="summary-grid">
+          <div class="metric">
+            <span class="label">القيمة الحالية</span>
+            <span id="sumCurrentValue" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">إجمالي التكلفة</span>
+            <span id="sumTotalCost" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">ربح غير محقق</span>
+            <span id="sumUnrealized" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">ربح محقق (من البيع)</span>
+            <span id="sumRealized" class="value neutral tabular">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- إضافة عملية -->
+      <div class="card">
+        <h2><span class="icon">＋</span> إضافة عملية</h2>
+
+        <div class="type-toggle">
+          <button type="button" data-type="buy" class="active">شراء</button>
+          <button type="button" data-type="sell">بيع</button>
+        </div>
+
+        <form id="txForm">
+          <div class="field">
+            <label for="txSymbol">اسم / رمز السند</label>
+            <input id="txSymbol" type="text" placeholder="مثال: صكوك ٢٠٣٠" required autocomplete="off" />
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="txDate">التاريخ</label>
+              <input id="txDate" type="date" required />
+            </div>
+            <div class="field">
+              <label for="txQty">الكمية</label>
+              <input id="txQty" type="number" inputmode="numeric" step="1" min="1" placeholder="0" required />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="txPrice">السعر لكل وحدة</label>
+              <input id="txPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" required />
+            </div>
+            <div class="field">
+              <label for="txCommission">العمولة (اختياري)</label>
+              <input id="txCommission" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" />
+            </div>
+          </div>
+
+          <p id="sellWarning" class="helper-text hidden"></p>
+
+          <button type="submit" id="txSubmitBtn" class="btn btn-primary">حفظ العملية</button>
+        </form>
+      </div>
+
+      <!-- السندات الحالية -->
+      <div class="card">
+        <h2><span class="icon">📊</span> السندات الحالية</h2>
+        <div id="holdingsList">
+          <p class="empty">لا توجد سندات مملوكة حالياً</p>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ======================================================== السجل -->
+    <section id="section-history" class="section">
+      <div class="card">
+        <h2><span class="icon">📜</span> سجل العمليات</h2>
+        <div id="txList">
+          <p class="empty">لا توجد عمليات مسجلة بعد</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ======================================================= شريط التنقل -->
+  <nav class="bottom-nav">
+    <button type="button" class="nav-btn active" data-target="section-home">
+      <span class="nav-icon">🏠</span>
+      الرئيسية
+    </button>
+    <button type="button" class="nav-btn" data-target="section-history">
+      <span class="nav-icon">📜</span>
+      العمليات
+    </button>
+  </nav>
+
+  <!-- ================================================== دعوة للتثبيت -->
+  <div id="installBanner" class="install-banner hidden">
+    <p>ثبّت التطبيق على شاشتك الرئيسية لتفتحه بسرعة</p>
+    <button type="button" id="installYesBtn" class="install-yes">تثبيت</button>
+    <button type="button" id="installCloseBtn" class="btn-icon-close">✕</button>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

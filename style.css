@@ -1,0 +1,557 @@
+/* =====================================================================
+   المتغيرات المركزية — كل الألوان من هنا فقط. أي تعديل على الهوية
+   البصرية يتم من هذا المكان، ولا يوجد أي لون مكتوب مباشرة في باقي الملف.
+   ===================================================================== */
+:root {
+  /* الألوان الأساسية الإلزامية */
+  --color-primary: #40e0d0;      /* تركواز — أزرار، عناصر نشطة، تركيز */
+  --color-secondary: #4a9c7e;    /* أخضر — أرباح، نتائج إيجابية */
+  --color-muted: #6b7280;        /* رمادي — نصوص ثانوية، عناصر غير نشطة */
+  --color-heading: #1e3a8a;      /* كحلي — عناوين، الشريط العلوي */
+
+  /* لون واحد إضافي غير مذكور في القائمة، لضرورة وظيفية بحتة:
+     لا يمكن عرض "خسارة" بنفس لون "ربح" دون تضليل المستخدم.
+     إن رغبت بإزالته أو استبداله أخبرني. */
+  --color-negative: #dc2626;
+
+  /* لون النص فوق الخلفيات الملوّنة — محسوبان يدوياً للتباين والوضوح،
+     وليسا لونين "بديلين" عن الأربعة الأساسية، بل درجتان محايدتان
+     (أبيض/كحلي غامق) تُستخدمان فقط كنص فوق تركواز أو كحلي. */
+  --color-on-heading: #ffffff;
+  --color-on-primary: #06262b;
+
+  /* درجات مشتقة من الألوان الأساسية فقط — ليست ألواناً جديدة */
+  --color-primary-dark: #2bc4b5;
+  --color-primary-soft: #e6faf8;
+  --color-secondary-soft: #eaf5f0;
+  --color-negative-soft: #fdecec;
+  --color-heading-soft: #eef2ff;
+
+  /* محايدات الواجهة */
+  --color-bg: #f7f9fb;
+  --color-surface: #ffffff;
+  --color-border: #e5e7eb;
+  --color-text: #111827;
+
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 8px 20px -10px rgba(30, 58, 138, 0.12);
+
+  --header-h: 56px;
+  --nav-h: 60px;
+}
+
+/* ===================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family:
+    'Segoe UI', Tahoma, 'Cairo', system-ui, -apple-system, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  padding-top: var(--header-h);
+  padding-bottom: calc(var(--nav-h) + 16px);
+  min-height: 100dvh;
+}
+
+h1, h2, h3 {
+  color: var(--color-heading);
+  margin: 0;
+  font-weight: 700;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.app-header {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--header-h);
+  background: var(--color-heading);
+  color: var(--color-on-heading);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 40;
+  box-shadow: var(--shadow);
+}
+
+.app-header h1 {
+  color: var(--color-on-heading);
+  font-size: 18px;
+}
+
+.app-header .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  margin-inline-start: 8px;
+  display: inline-block;
+}
+
+.app-header .status-dot.offline {
+  background: var(--color-muted);
+}
+
+/* --------------------------------------------------------------- content */
+
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.card h2 {
+  font-size: 15px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card h2 .icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--color-primary-soft);
+  color: var(--color-heading);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------- summary */
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.metric {
+  background: var(--color-bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.metric .label {
+  font-size: 12px;
+  color: var(--color-muted);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.metric .value {
+  font-size: 17px;
+  font-weight: 700;
+  display: block;
+}
+
+.value.positive { color: var(--color-secondary); }
+.value.negative { color: var(--color-negative); }
+.value.neutral  { color: var(--color-text); }
+
+/* ------------------------------------------------------------------ forms */
+
+label {
+  display: block;
+  font-size: 13px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+input,
+select {
+  width: 100%;
+  height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font-size: 15px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ------------------------------------------------------------- toggle تبديل */
+
+.type-toggle {
+  display: flex;
+  background: var(--color-bg);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 14px;
+  gap: 4px;
+}
+
+.type-toggle button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.type-toggle button.active[data-type="buy"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.type-toggle button.active[data-type="sell"] {
+  background: var(--color-negative-soft);
+  color: var(--color-negative);
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+button.btn {
+  appearance: none;
+  border: none;
+  border-radius: 10px;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  width: 100%;
+  height: 48px;
+}
+
+.btn-primary:active {
+  background: var(--color-primary-dark);
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  border: none;
+  color: var(--color-negative);
+  font-size: 12px;
+  height: 30px;
+  padding: 0 8px;
+}
+
+.btn-icon-close {
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* -------------------------------------------------------------- holdings */
+
+.holding-row {
+  border-bottom: 1px solid var(--color-border);
+  padding: 12px 0;
+}
+
+.holding-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.holding-row:first-child {
+  padding-top: 0;
+}
+
+.holding-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.holding-symbol {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.holding-qty {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+.holding-value {
+  text-align: left;
+}
+
+.holding-value .amount {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.holding-value .pl {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.price-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.price-input-row label {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.price-input-row input {
+  height: 36px;
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------- transactions */
+
+.tx-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tx-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.tx-row:first-child {
+  padding-top: 0;
+}
+
+.tx-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.tx-badge.buy {
+  background: var(--color-primary-soft);
+  color: var(--color-heading);
+}
+
+.tx-badge.sell {
+  background: var(--color-negative-soft);
+  color: var(--color-negative);
+}
+
+.tx-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.tx-symbol {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.tx-details {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+.tx-amount {
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- empty */
+
+.empty {
+  text-align: center;
+  padding: 28px 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------ bottom nav */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  height: var(--nav-h);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  z-index: 40;
+}
+
+.bottom-nav button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--color-muted);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.bottom-nav button .nav-icon {
+  font-size: 18px;
+}
+
+.bottom-nav button.active {
+  color: var(--color-heading);
+}
+
+.bottom-nav button.active .nav-icon {
+  color: var(--color-primary);
+}
+
+/* -------------------------------------------------------------- install */
+
+.install-banner {
+  position: fixed;
+  bottom: calc(var(--nav-h) + 12px);
+  right: 16px;
+  left: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--color-heading);
+  color: var(--color-on-heading);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--shadow);
+  z-index: 50;
+}
+
+.install-banner p {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+}
+
+.install-banner button.install-yes {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- toast */
+
+.toast {
+  position: fixed;
+  top: calc(var(--header-h) + 10px);
+  right: 16px;
+  left: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--color-secondary-soft);
+  color: var(--color-secondary);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  z-index: 60;
+  box-shadow: var(--shadow);
+}
+
+.toast.error {
+  background: var(--color-negative-soft);
+  color: var(--color-negative);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.section {
+  display: none;
+}
+
+.section.active {
+  display: block;
+}
+
+.helper-text {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-top: -6px;
+  margin-bottom: 12px;
+}

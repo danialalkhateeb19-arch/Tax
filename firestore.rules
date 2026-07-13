@@ -1,0 +1,19 @@
+// قواعد أمان Firestore — الصق هذا الملف كاملاً في:
+// Firebase Console → Firestore Database → Rules → ثم اضغط Publish
+//
+// القاعدة الوحيدة أدناه تسمح بالقراءة/الكتابة فقط إذا كانت هوية المستخدم
+// المسجّل دخوله (حتى لو "مجهول" تلقائياً من التطبيق) مطابقة تماماً
+// لجزء {uid} في المسار نفسه. بما أن كل من يفتح رابط GitHub Pages يُسجَّل
+// دخوله تلقائياً بهوية مجهولة مختلفة، فإن هذا الشرط يمنع أي شخص من
+// الوصول لمسار غير مساره الخاص — أي لا يستطيع أحد رؤية بياناتك أو
+// تعديلها إلا من خلال نفس المتصفح الذي أنشأها.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/bondTracker/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
