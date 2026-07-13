@@ -30,12 +30,12 @@ import {
  * Project settings → General → Your apps → SDK setup and configuration
  * ===================================================================== */
 const firebaseConfig = {
-  apiKey: 'ضع_مفتاحك_هنا',
-  authDomain: 'ضع_مشروعك.firebaseapp.com',
-  projectId: 'ضع_معرف_المشروع',
-  storageBucket: 'ضع_مشروعك.appspot.com',
-  messagingSenderId: 'ضع_الرقم_هنا',
-  appId: 'ضع_معرف_التطبيق',
+  apiKey: 'AIzaSyBobE8lKAbk3RiAemd_NoTMY3avuIjmls0',
+  authDomain: 'tax-ead55.firebaseapp.com',
+  projectId: 'tax-ead55',
+  storageBucket: 'tax-ead55.firebasestorage.app',
+  messagingSenderId: '89212945458',
+  appId: '1:89212945458:web:6dded1935a102dd600e82b',
 };
 
 const app = initializeApp(firebaseConfig);
