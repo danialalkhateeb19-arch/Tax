@@ -21,6 +21,7 @@ import {
   setDoc,
   onSnapshot,
   serverTimestamp,
+  writeBatch,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 /* =====================================================================
@@ -51,6 +52,14 @@ const db = initializeFirestore(app, {
 let txCollection;
 let priceCollection;
 let bondInfoCollection;
+let operationsCollection; // [مرحلة 1] أرشيف عمليات تنكوف الدائم
+
+/* =====================================================================
+ * [مرحلة 1] إعدادات المزامنة مع تنكوف (عبر وسيط Vercel)
+ * ===================================================================== */
+const PROXY_BASE = 'https://tinkoff-vercel.vercel.app';
+// تاريخ فتح حساب Future Tax Fund — منه تبدأ المزامنة لتغطية كل التاريخ.
+const ACCOUNT_OPENED = '2024-02-01';
 
 /* =====================================================================
  * الحالة العامة
@@ -503,6 +512,67 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
  * تُستعاد من تخزين المتصفح في كل مرة تُفتح فيها الصفحة على نفس الجهاز —
  * فلا تُفقد بياناتك عند إغلاق التطبيق وإعادة فتحه من الشاشة الرئيسية.
  * ===================================================================== */
+/* =====================================================================
+ * [مرحلة 1] طبقة المزامنة — جلب عمليات تنكوف وتخزينها في Firestore
+ * ---------------------------------------------------------------------
+ * أرشيف دائم: الجديد يُضاف، المتغيّر يُحدَّث (بمعرّف العملية)، ولا يُحذف
+ * شيء أبداً. هذه الطبقة لا تلمس العرض بعد.
+ * ===================================================================== */
+function monthsSinceOpen() {
+  const open = new Date(ACCOUNT_OPENED);
+  const now = new Date();
+  const months = (now.getFullYear() - open.getFullYear()) * 12 + (now.getMonth() - open.getMonth());
+  return Math.min(months + 2, 60);
+}
+
+async function callProxy(path) {
+  if (!auth.currentUser) throw new Error('لم تكتمل المصادقة بعد');
+  const token = await auth.currentUser.getIdToken();
+  let res;
+  try {
+    res = await fetch(PROXY_BASE + path, { headers: { Authorization: 'Bearer ' + token } });
+  } catch {
+    throw new Error('تعذّر الاتصال بالوسيط (تحقق من الإنترنت أو الإعدادات)');
+  }
+  if (!res.ok) {
+    let detail = 'HTTP ' + res.status;
+    try { const b = await res.json(); if (b && b.error) detail = b.error; } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+// المزامنة: كل العمليات من فتح الحساب، تُخزَّن دمجاً بلا حذف.
+async function syncOperations() {
+  if (!operationsCollection) return;
+  let data;
+  try {
+    data = await callProxy('/api/operations?monthsBack=' + monthsSinceOpen());
+  } catch (err) {
+    showToast('تعذّرت المزامنة: ' + err.message, true);
+    return;
+  }
+  const ops = data.operations || [];
+  try {
+    let batch = writeBatch(db);
+    let n = 0;
+    for (const op of ops) {
+      batch.set(
+        doc(operationsCollection, String(op.id)),
+        { ...op, syncedAt: serverTimestamp() },
+        { merge: true },
+      );
+      n++;
+      if (n % 450 === 0) { await batch.commit(); batch = writeBatch(db); }
+    }
+    await batch.commit();
+    showToast('تمت مزامنة ' + ops.length + ' عملية');
+    console.log('[مزامنة] العمليات المخزّنة:', ops.length, '| الحساب:', data.accountId);
+  } catch (err) {
+    showToast('تعذّر حفظ الأرشيف: ' + err.message, true);
+  }
+}
+
 onAuthStateChanged(auth, (user) => {
   if (user) {
     startListening(user.uid);
@@ -528,6 +598,10 @@ function startListening(uid) {
   txCollection = collection(db, userDataPath, 'data', 'transactions');
   priceCollection = collection(db, userDataPath, 'data', 'prices');
   bondInfoCollection = collection(db, userDataPath, 'data', 'bondInfo');
+  operationsCollection = collection(db, userDataPath, 'data', 'operations');
+
+  // [مرحلة 1] مزامنة أرشيف تنكوف في الخلفية (لا تلمس العرض الحالي).
+  syncOperations();
 
   onSnapshot(
     txCollection,
