@@ -429,107 +429,6 @@ function escapeAttr(str) {
 }
 
 /* =====================================================================
- * نموذج إضافة عملية
- * ===================================================================== */
-const txForm = document.getElementById('txForm');
-const sellWarning = document.getElementById('sellWarning');
-const txSubmitBtn = document.getElementById('txSubmitBtn');
-
-document.querySelectorAll('.type-toggle button').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    selectedType = btn.dataset.type;
-    document.querySelectorAll('.type-toggle button').forEach((b) => b.classList.toggle('active', b === btn));
-    txSubmitBtn.textContent = selectedType === 'buy' ? 'حفظ عملية الشراء' : 'حفظ عملية البيع';
-    validateSellQuantity();
-  });
-});
-
-document.getElementById('txSymbol').addEventListener('input', validateSellQuantity);
-document.getElementById('txQty').addEventListener('input', validateSellQuantity);
-
-function validateSellQuantity() {
-  if (selectedType !== 'sell') {
-    sellWarning.classList.add('hidden');
-    txSubmitBtn.disabled = false;
-    return;
-  }
-  const symbol = document.getElementById('txSymbol').value.trim();
-  const qty = parseFloat(document.getElementById('txQty').value);
-  if (!symbol || !qty) {
-    sellWarning.classList.add('hidden');
-    txSubmitBtn.disabled = false;
-    return;
-  }
-  const available = availableQtyFor(symbol);
-  if (qty > available) {
-    sellWarning.textContent = `الكمية المتاحة من "${symbol}" هي ${formatQty(available)} فقط`;
-    sellWarning.classList.remove('hidden');
-    txSubmitBtn.disabled = true;
-  } else {
-    sellWarning.classList.add('hidden');
-    txSubmitBtn.disabled = false;
-  }
-}
-
-txForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  // [مرحلة 2] الإدخال اليدوي معطّل — البيانات تُزامَن من تنكوف.
-  showToast('الإدخال اليدوي معطّل — البيانات تُجلب من تنكوف تلقائياً', true);
-  return;
-
-  const symbol = document.getElementById('txSymbol').value.trim();
-  const date = document.getElementById('txDate').value;
-  const qty = parseFloat(document.getElementById('txQty').value);
-  const price = parseFloat(document.getElementById('txPrice').value);
-  const commission = parseFloat(document.getElementById('txCommission').value) || 0;
-
-  if (!symbol || !date || !qty || qty <= 0 || !price || price <= 0) {
-    showToast('يرجى تعبئة كل الحقول المطلوبة بشكل صحيح', true);
-    return;
-  }
-
-  if (selectedType === 'sell' && qty > availableQtyFor(symbol)) {
-    showToast('لا يمكن بيع كمية أكبر مما تملك', true);
-    return;
-  }
-
-  if (!txCollection) {
-    showToast('التطبيق لا يزال يتصل — أعد المحاولة بعد لحظة', true);
-    return;
-  }
-
-  txSubmitBtn.disabled = true;
-  txSubmitBtn.textContent = 'جارٍ الحفظ…';
-
-  try {
-    await addDoc(txCollection, {
-      type: selectedType,
-      symbol,
-      date,
-      qty,
-      price,
-      commission,
-      createdAt: serverTimestamp(),
-    });
-    showToast(selectedType === 'buy' ? 'تم حفظ عملية الشراء' : 'تم حفظ عملية البيع');
-    txForm.reset();
-    document.getElementById('txDate').value = todayISO();
-    saveMoexPriceIfFound(symbol);
-    saveMoexBondInfoIfFound(symbol);
-  } catch (err) {
-    showToast('تعذّر الحفظ: ' + err.message, true);
-  } finally {
-    txSubmitBtn.disabled = false;
-    txSubmitBtn.textContent = selectedType === 'buy' ? 'حفظ عملية الشراء' : 'حفظ عملية البيع';
-  }
-});
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-document.getElementById('txDate').value = todayISO();
-
-/* =====================================================================
  * التنقل بين الصفحتين
  * ===================================================================== */
 document.querySelectorAll('.nav-btn').forEach((btn) => {
@@ -669,7 +568,6 @@ function startListening(uid) {
       renderSummary();
       renderHoldings();
       renderTransactions();
-      validateSellQuantity();
     },
     (err) => showToast('خطأ في مزامنة العمليات: ' + err.message, true),
   );
