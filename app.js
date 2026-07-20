@@ -68,6 +68,8 @@ let transactions = []; // [{ id, type: 'buy'|'sell', symbol, date, qty, price, c
 let prices = {}; // { symbol: currentPrice }
 let bondInfo = {}; // { symbol: { maturityDate, couponValue, paymentsPerYear } }
 let selectedType = 'buy';
+let livePositions = []; // [مرحلة 2] المحفظة الحيّة من تنكوف
+let archiveOps = [];     // [مرحلة 2] أرشيف العمليات من Firestore
 
 /* =====================================================================
  * أدوات مساعدة للعرض فقط — لا تُغيّر أي رقم، فقط تنسّقه
@@ -167,14 +169,65 @@ function availableQtyFor(symbol) {
 /* =====================================================================
  * العرض — الملخص
  * ===================================================================== */
-function renderSummary() {
-  const holdings = computeHoldings(transactions);
-  const s = computeSummary(holdings);
+function renderAll() {
+  renderSummary();
+  renderHoldings();
+  renderTransactions();
+}
 
-  setMetric('sumCurrentValue', formatMoney(s.currentValue), 'neutral');
-  setMetric('sumTotalCost', formatMoney(s.totalCost), 'neutral');
-  setMetric('sumUnrealized', formatMoney(s.unrealizedPL), toneClass(s.unrealizedPL));
-  setMetric('sumRealized', formatMoney(s.realizedPL), toneClass(s.realizedPL));
+// [مرحلة 2] الربح المحقق من عمليات البيع في الأرشيف (متوسط تكلفة، بلا عمولات).
+function computeRealizedFromArchive() {
+  const byFigi = {};
+  const sorted = [...archiveOps]
+    .filter((o) => o.figi && (o.category === 'buy' || o.category === 'sell'))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+  let realized = 0;
+  for (const o of sorted) {
+    const h = byFigi[o.figi] || (byFigi[o.figi] = { qty: 0, cost: 0 });
+    if (o.category === 'buy') {
+      h.qty += o.quantity || 0;
+      h.cost += Math.abs(o.payment || 0);
+    } else {
+      const avg = h.qty > 0 ? h.cost / h.qty : 0;
+      const soldQty = Math.min(o.quantity || 0, h.qty);
+      realized += (o.payment || 0) - avg * soldQty;
+      h.qty -= soldQty;
+      h.cost -= avg * soldQty;
+    }
+  }
+  return realized;
+}
+
+// [مرحلة 2] جلب المحفظة الحيّة من تنكوف.
+async function loadPortfolio() {
+  let data;
+  try {
+    data = await callProxy('/api/portfolio');
+  } catch (err) {
+    showToast('تعذّر جلب المحفظة: ' + err.message, true);
+    return;
+  }
+  livePositions = data.positions || [];
+  renderAll();
+}
+
+function renderSummary() {
+  const bonds = livePositions.filter((p) => p.instrumentType === 'bond' && (p.quantity || 0) > 0.0001);
+  let currentValue = 0;
+  let totalCost = 0;
+  for (const p of bonds) {
+    const qty = p.quantity || 0;
+    const price = (p.currentPrice != null ? p.currentPrice : p.averagePositionPrice) || 0;
+    currentValue += qty * price;
+    totalCost += qty * (p.averagePositionPrice || 0);
+  }
+  const unrealized = currentValue - totalCost;
+  const realized = computeRealizedFromArchive();
+
+  setMetric('sumCurrentValue', formatMoney(currentValue), 'neutral');
+  setMetric('sumTotalCost', formatMoney(totalCost), 'neutral');
+  setMetric('sumUnrealized', formatMoney(unrealized), toneClass(unrealized));
+  setMetric('sumRealized', formatMoney(realized), toneClass(realized));
 }
 
 function setMetric(id, text, tone) {
@@ -188,55 +241,43 @@ function setMetric(id, text, tone) {
  * ===================================================================== */
 function renderHoldings() {
   const container = document.getElementById('holdingsList');
-  const holdings = computeHoldings(transactions).filter((h) => h.qty > 0.0001);
+  const bonds = livePositions.filter((p) => p.instrumentType === 'bond' && (p.quantity || 0) > 0.0001);
 
-  if (holdings.length === 0) {
+  if (bonds.length === 0) {
     container.innerHTML = '<p class="empty">لا توجد سندات مملوكة حالياً</p>';
     return;
   }
 
-  container.innerHTML = holdings
-    .map((h) => {
-      const avgCost = h.totalCost / h.qty;
-      const price = prices[h.symbol] ?? avgCost;
-      const value = h.qty * price;
-      const pl = value - h.totalCost;
+  container.innerHTML = bonds
+    .map((p) => {
+      const qty = p.quantity || 0;
+      const avgCost = p.averagePositionPrice || 0;
+      const price = (p.currentPrice != null ? p.currentPrice : avgCost) || 0;
+      const value = qty * price;
+      const pl = value - qty * avgCost;
       const tone = toneClass(pl);
-      const priceValue = prices[h.symbol] !== undefined ? prices[h.symbol] : '';
-
+      const title = p.ticker || p.name || p.figi || '—';
+      const maturity = p.maturityDate ? String(p.maturityDate).slice(0, 10) : null;
+      const extra =
+        maturity || p.couponQuantityPerYear
+          ? `<div class="holding-qty">الاستحقاق: ${maturity ?? '—'} · دفعات كوبون/سنة: ${p.couponQuantityPerYear ?? '—'}</div>`
+          : '';
       return `
         <div class="holding-row">
           <div class="holding-top">
             <div>
-              <div class="holding-symbol">${escapeHtml(h.symbol)}</div>
-              <div class="holding-qty">الكمية: ${formatQty(h.qty)} · متوسط التكلفة: ${formatMoney(avgCost)}</div>
+              <div class="holding-symbol">${escapeHtml(title)}</div>
+              <div class="holding-qty">الكمية: ${formatQty(qty)} · متوسط التكلفة: ${formatMoney(avgCost)} · السعر الحالي: ${formatMoney(price)}</div>
             </div>
             <div class="holding-value">
               <div class="amount tabular">${formatMoney(value)}</div>
               <div class="pl tabular ${tone}">${pl >= 0 ? '+' : ''}${formatMoney(pl)}</div>
             </div>
           </div>
-          <div class="price-input-row">
-            <label>السعر الحالي</label>
-            <input
-              type="number" inputmode="decimal" step="0.01" min="0"
-              placeholder="${formatMoney(avgCost)}"
-              value="${priceValue}"
-              data-price-symbol="${escapeAttr(h.symbol)}"
-            />
-          </div>
-          ${
-            bondInfo[h.symbol]
-              ? `<div class="holding-qty">تاريخ الاستحقاق: ${bondInfo[h.symbol].maturityDate ?? '—'} · قيمة الكوبون: ${bondInfo[h.symbol].couponValue ?? '—'} · دفعات/سنة: ${bondInfo[h.symbol].paymentsPerYear ?? '—'}</div>`
-              : ''
-          }
+          ${extra}
         </div>`;
     })
     .join('');
-
-  container.querySelectorAll('[data-price-symbol]').forEach((input) => {
-    input.addEventListener('change', onPriceChange);
-  });
 }
 
 async function fetchMoexBondInfo(symbol) {
@@ -334,38 +375,36 @@ async function onPriceChange(e) {
  * ===================================================================== */
 function renderTransactions() {
   const container = document.getElementById('txList');
+  const CAT = { buy: 'شراء', sell: 'بيع', coupon: 'كوبون', redemption: 'استحقاق', deposit: 'إيداع', withdrawal: 'سحب' };
 
-  if (transactions.length === 0) {
-    container.innerHTML = '<p class="empty">لا توجد عمليات مسجلة بعد</p>';
+  const rows = archiveOps.filter((o) => CAT[o.category]);
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="empty">لا توجد عمليات بعد</p>';
     return;
   }
 
-  const sorted = [...transactions].sort(
-    (a, b) => b.date.localeCompare(a.date) || (b.createdAtMs ?? 0) - (a.createdAtMs ?? 0),
-  );
+  const sorted = [...rows].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
   container.innerHTML = sorted
-    .map((tx) => {
-      const total = tx.qty * tx.price;
-      const label = tx.type === 'buy' ? 'شراء' : 'بيع';
+    .map((o) => {
+      const label = CAT[o.category];
+      const pay = o.payment || 0;
+      const badgeClass = pay >= 0 ? 'buy' : 'sell';
+      const title = o.figi || label;
+      const qtyPart = o.quantity ? formatQty(o.quantity) + ' وحدة · ' : '';
       return `
         <div class="tx-row">
-          <span class="tx-badge ${tx.type}">${label}</span>
+          <span class="tx-badge ${badgeClass}">${label}</span>
           <div class="tx-main">
-            <div class="tx-symbol">${escapeHtml(tx.symbol)}</div>
-            <div class="tx-details">${tx.date} · ${formatQty(tx.qty)} وحدة × ${formatMoney(tx.price)}${tx.commission ? ' · عمولة ' + formatMoney(tx.commission) : ''}</div>
+            <div class="tx-symbol">${escapeHtml(title)}</div>
+            <div class="tx-details">${String(o.date || '').slice(0, 10)} · ${qtyPart}${formatMoney(Math.abs(pay))} ₽</div>
           </div>
           <div style="text-align:left;">
-            <div class="tx-amount tabular">${formatMoney(total)}</div>
-            <button type="button" class="btn-danger-ghost" data-delete-id="${tx.id}">حذف</button>
+            <div class="tx-amount tabular ${toneClass(pay)}">${pay >= 0 ? '+' : '−'}${formatMoney(Math.abs(pay))}</div>
           </div>
         </div>`;
     })
     .join('');
-
-  container.querySelectorAll('[data-delete-id]').forEach((btn) => {
-    btn.addEventListener('click', onDeleteTransaction);
-  });
 }
 
 async function onDeleteTransaction(e) {
@@ -434,6 +473,9 @@ function validateSellQuantity() {
 
 txForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  // [مرحلة 2] الإدخال اليدوي معطّل — البيانات تُزامَن من تنكوف.
+  showToast('الإدخال اليدوي معطّل — البيانات تُجلب من تنكوف تلقائياً', true);
+  return;
 
   const symbol = document.getElementById('txSymbol').value.trim();
   const date = document.getElementById('txDate').value;
@@ -600,7 +642,17 @@ function startListening(uid) {
   bondInfoCollection = collection(db, userDataPath, 'data', 'bondInfo');
   operationsCollection = collection(db, userDataPath, 'data', 'operations');
 
-  // [مرحلة 1] مزامنة أرشيف تنكوف في الخلفية (لا تلمس العرض الحالي).
+  // [مرحلة 2] الاستماع للأرشيف + جلب المحفظة الحيّة + مزامنة.
+  onSnapshot(
+    operationsCollection,
+    (snap) => {
+      archiveOps = snap.docs.map((d) => d.data());
+      renderAll();
+    },
+    (err) => showToast('خطأ في قراءة الأرشيف: ' + err.message, true),
+  );
+
+  loadPortfolio();
   syncOperations();
 
   onSnapshot(
