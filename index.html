@@ -58,49 +58,6 @@
         </div>
       </div>
 
-      <!-- إضافة عملية -->
-      <div class="card">
-        <h2><span class="icon">＋</span> إضافة عملية</h2>
-
-        <div class="type-toggle">
-          <button type="button" data-type="buy" class="active">شراء</button>
-          <button type="button" data-type="sell">بيع</button>
-        </div>
-
-        <form id="txForm">
-          <div class="field">
-            <label for="txSymbol">اسم / رمز السند</label>
-            <input id="txSymbol" type="text" placeholder="مثال: صكوك ٢٠٣٠" required autocomplete="off" />
-          </div>
-
-          <div class="field-row">
-            <div class="field">
-              <label for="txDate">التاريخ</label>
-              <input id="txDate" type="date" required />
-            </div>
-            <div class="field">
-              <label for="txQty">الكمية</label>
-              <input id="txQty" type="number" inputmode="numeric" step="1" min="1" placeholder="0" required />
-            </div>
-          </div>
-
-          <div class="field-row">
-            <div class="field">
-              <label for="txPrice">السعر لكل وحدة</label>
-              <input id="txPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" required />
-            </div>
-            <div class="field">
-              <label for="txCommission">العمولة (اختياري)</label>
-              <input id="txCommission" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" />
-            </div>
-          </div>
-
-          <p id="sellWarning" class="helper-text hidden"></p>
-
-          <button type="submit" id="txSubmitBtn" class="btn btn-primary">حفظ العملية</button>
-        </form>
-      </div>
-
       <!-- السندات الحالية -->
       <div class="card">
         <h2><span class="icon">📊</span> السندات الحالية</h2>
