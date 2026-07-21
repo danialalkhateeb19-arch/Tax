@@ -53,6 +53,7 @@ let txCollection;
 let priceCollection;
 let bondInfoCollection;
 let operationsCollection; // [مرحلة 1] أرشيف عمليات تنكوف الدائم
+let classificationsCollection; // [مرحلة 3] مجموعة قرارات التصنيف
 
 /* =====================================================================
  * [مرحلة 1] إعدادات المزامنة مع تنكوف (عبر وسيط Vercel)
@@ -60,6 +61,27 @@ let operationsCollection; // [مرحلة 1] أرشيف عمليات تنكوف �
 const PROXY_BASE = 'https://tinkoff-vercel.vercel.app';
 // تاريخ فتح حساب Future Tax Fund — منه تبدأ المزامنة لتغطية كل التاريخ.
 const ACCOUNT_OPENED = '2024-02-01';
+
+/* =====================================================================
+ * [مرحلة 3] فئات التصنيف — مرنة: أضف/احذف/عدّل لاحقاً بلا إعادة بناء.
+ * التخزين يستخدم id (لا النص)، فتغيير label لا يكسر التصنيفات القديمة.
+ * ===================================================================== */
+const CLASSIFY_CATEGORIES = {
+  deposit: [
+    { id: 'tax', label: 'ضريبة' },
+    { id: 'investment', label: 'استثمار' },
+    { id: 'personal', label: 'تحويل شخصي' },
+    { id: 'other_income', label: 'دخل آخر' },
+  ],
+  withdrawal: [
+    { id: 'tax_paid', label: 'دفع ضريبة' },
+    { id: 'personal_buy', label: 'شراء شخصي' },
+    { id: 'transfer_out', label: 'تحويل لحساب آخر' },
+    { id: 'other_reason', label: 'سبب آخر' },
+  ],
+};
+// أنواع تنكوف المفهومة ذاتياً (عمولة 19، ضرائب 5/8/11/13) — لا تُصنّف.
+const SELF_EXPLAINED_TYPES = [19, 5, 8, 11, 13];
 
 /* =====================================================================
  * الحالة العامة
@@ -70,6 +92,9 @@ let bondInfo = {}; // { symbol: { maturityDate, couponValue, paymentsPerYear } }
 let selectedType = 'buy';
 let livePositions = []; // [مرحلة 2] المحفظة الحيّة من تنكوف
 let archiveOps = [];     // [مرحلة 2] أرشيف العمليات من Firestore
+let classifications = {}; // [مرحلة 3] قراراتي (operationId -> قرار)
+let filterCategory = 'all'; // [مرحلة 8] فلتر النوع
+let filterYear = 'all';     // [مرحلة 8] فلتر السنة
 
 /* =====================================================================
  * أدوات مساعدة للعرض فقط — لا تُغيّر أي رقم، فقط تنسّقه
@@ -173,6 +198,11 @@ function renderAll() {
   renderSummary();
   renderHoldings();
   renderTransactions();
+  renderTaxFund();
+  renderAnalytics();
+  renderAlerts();
+  populateYearFilter();
+  renderReport();
 }
 
 // [مرحلة 2] الربح المحقق من عمليات البيع في الأرشيف (متوسط تكلفة، بلا عمولات).
@@ -195,7 +225,9 @@ function computeRealizedFromArchive() {
       h.cost -= avg * soldQty;
     }
   }
-  return realized;
+  // [تعديل] + كل الكوبونات المستلمة (بقرارك: الربح المحقق يشملها).
+  const coupons = archiveOps.reduce((sum, o) => sum + (o.category === 'coupon' ? (o.payment || 0) : 0), 0);
+  return realized + coupons;
 }
 
 // [مرحلة 2] جلب المحفظة الحيّة من تنكوف.
@@ -213,19 +245,34 @@ async function loadPortfolio() {
 
 function renderSummary() {
   const bonds = livePositions.filter((p) => p.instrumentType === 'bond' && (p.quantity || 0) > 0.0001);
-  let currentValue = 0;
-  let totalCost = 0;
+  let currentValue = 0; // قيمة السندات بالسعر الحالي
+  let costBasis = 0;    // تكلفة الشراء (للربح غير المحقق — مؤقت حتى نستبدل البطاقة)
   for (const p of bonds) {
     const qty = p.quantity || 0;
     const price = (p.currentPrice != null ? p.currentPrice : p.averagePositionPrice) || 0;
     currentValue += qty * price;
-    totalCost += qty * (p.averagePositionPrice || 0);
+    costBasis += qty * (p.averagePositionPrice || 0);
   }
-  const unrealized = currentValue - totalCost;
-  const realized = computeRealizedFromArchive();
+  const unrealized = currentValue - costBasis;
+
+  // [تعديل] إجمالي التكلفة = قيمة الأوراق المالية + النقد في الحساب.
+  let securitiesValue = 0;
+  let cash = 0;
+  for (const p of livePositions) {
+    const qty = p.quantity || 0;
+    const price = (p.currentPrice != null ? p.currentPrice : p.averagePositionPrice) || 0;
+    if (p.instrumentType === 'currency') cash += qty * price;
+    else securitiesValue += qty * price;
+  }
+  const totalAssets = securitiesValue + cash;
+
+  // [تعديل] الربح المحقق = فرق البيع/الشراء لكل سند + كل الكوبونات المستلمة.
+  // (الاستحقاقات تبقى مستثناة — رأس مال عائد، وليست ربحاً.)
+  const coupons = archiveOps.reduce((sum, o) => sum + (o.category === 'coupon' ? (o.payment || 0) : 0), 0);
+  const realized = computeRealizedFromArchive() + coupons;
 
   setMetric('sumCurrentValue', formatMoney(currentValue), 'neutral');
-  setMetric('sumTotalCost', formatMoney(totalCost), 'neutral');
+  setMetric('sumTotalCost', formatMoney(totalAssets), 'neutral');
   setMetric('sumUnrealized', formatMoney(unrealized), toneClass(unrealized));
   setMetric('sumRealized', formatMoney(realized), toneClass(realized));
 }
@@ -377,7 +424,12 @@ function renderTransactions() {
   const container = document.getElementById('txList');
   const CAT = { buy: 'شراء', sell: 'بيع', coupon: 'كوبون', redemption: 'استحقاق', deposit: 'إيداع', withdrawal: 'سحب' };
 
-  const rows = archiveOps.filter((o) => CAT[o.category]);
+  const rows = archiveOps.filter((o) => {
+    if (!CAT[o.category]) return false;
+    if (filterCategory !== 'all' && o.category !== filterCategory) return false;
+    if (filterYear !== 'all' && String(o.date || '').slice(0, 4) !== filterYear) return false;
+    return true;
+  });
   if (rows.length === 0) {
     container.innerHTML = '<p class="empty">لا توجد عمليات بعد</p>';
     return;
@@ -514,6 +566,400 @@ async function syncOperations() {
   }
 }
 
+/* =====================================================================
+ * [مرحلة 3 · 1/5] طبقة بيانات التصنيف — قراءة فقط (بلا حفظ ولا واجهة)
+ * ---------------------------------------------------------------------
+ * قاعدة موحّدة: نتجاهل اسم العملية وننظر لتأثيرها على الرصيد.
+ *   موجبة وليست (شراء/بيع/كوبون/استحقاق/عمولة/ضريبة) ⇒ إيداع يحتاج تصنيف.
+ *   سالبة بنفس الاستثناءات ⇒ سحب يحتاج تصنيف.
+ * ===================================================================== */
+function needsClassification(op) {
+  const pay = op.payment || 0;
+  if (pay === 0) return false;
+  if (['buy', 'sell', 'coupon', 'redemption'].includes(op.category)) return false;
+  if (SELF_EXPLAINED_TYPES.includes(op.typeRaw)) return false;
+  return true; // حركة نقدية تحتاج تصنيفاً
+}
+
+function opKind(op) {
+  return (op.payment || 0) > 0 ? 'deposit' : 'withdrawal';
+}
+
+// العمليات غير المصنّفة = تحتاج تصنيفاً وليست موجودة في classifications.
+function getUnclassifiedOps() {
+  return archiveOps
+    .filter((o) => needsClassification(o) && !classifications[String(o.id)])
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+}
+
+// [مرحلة 3 · 2/5] حفظ قرارات التصنيف — المفتاح = معرّف العملية (بلا تكرار).
+// كل قرار يُكتب بالكامل، فإعادة التصنيف لاحقاً تستبدل القديم (مرونة التعديل).
+async function saveClassifications(decisions) {
+  if (!classificationsCollection || !decisions || !decisions.length) return;
+  const batch = writeBatch(db);
+  for (const d of decisions) {
+    batch.set(doc(classificationsCollection, String(d.operationId)), {
+      operationId: String(d.operationId),
+      kind: d.kind,           // 'deposit' | 'withdrawal'
+      categoryId: d.categoryId, // id الفئة (لا النص)
+      decidedAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
+}
+
+/* =====================================================================
+ * [مرحلة 4 · 1/2] دورة الضريبة — منطق داخلي فقط (يُحسب عند الطلب، بلا تخزين)
+ * ---------------------------------------------------------------------
+ * يقرأ من الأرشيف + قراراتي (classifications) دون تخزين أي قيمة مشتقّة.
+ *   مموّل  = مجموع الإيداعات المصنّفة 'tax'.
+ *   مدفوع = مجموع السحوبات المصنّفة 'tax_paid' (بالقيمة المطلقة).
+ *   الرصيد = مموّل − مدفوع.
+ * ===================================================================== */
+function getTaxFunded() {
+  return archiveOps.reduce((sum, o) => {
+    const c = classifications[String(o.id)];
+    if (c && c.kind === 'deposit' && c.categoryId === 'tax') return sum + (o.payment || 0);
+    return sum;
+  }, 0);
+}
+
+function getTaxPaid() {
+  return archiveOps.reduce((sum, o) => {
+    const c = classifications[String(o.id)];
+    if (c && c.kind === 'withdrawal' && c.categoryId === 'tax_paid') return sum + Math.abs(o.payment || 0);
+    return sum;
+  }, 0);
+}
+
+function getTaxBalance() {
+  return getTaxFunded() - getTaxPaid();
+}
+
+/* =====================================================================
+ * [مرحلة 10 · 1/3] منطق التنبيهات الذكية — يُحسب عند الطلب من البيانات الجاهزة.
+ * ===================================================================== */
+function getAlerts() {
+  const alerts = [];
+  const now = new Date();
+  const soon = new Date(now.getTime() + 30 * 86400000);
+  // 1) سندات تقترب من الاستحقاق (خلال 30 يوماً)
+  for (const p of livePositions) {
+    if (p.instrumentType === 'bond' && p.quantity > 0 && p.maturityDate) {
+      const md = new Date(p.maturityDate);
+      if (md >= now && md <= soon) {
+        const days = Math.ceil((md - now) / 86400000);
+        alerts.push({
+          icon: '⏰',
+          text: (p.ticker || p.name || p.figi) + ' يستحق خلال ' + days + ' يوماً (' + String(p.maturityDate).slice(0, 10) + ')',
+        });
+      }
+    }
+  }
+  // 2) عمليات بانتظار التصنيف
+  const un = getUnclassifiedOps().length;
+  if (un > 0) alerts.push({ icon: '🏷️', text: un + ' عملية بانتظار التصنيف' });
+  // 3) رصيد صندوق الضريبة (مموّل لم يُدفع بعد)
+  const bal = getTaxBalance();
+  if (bal > 0) alerts.push({ icon: '⏳', text: 'رصيد صندوق الضريبة ' + formatMoney(bal) + ' ₽ (مموّل لم يُدفع بعد)' });
+  return alerts;
+}
+
+// [مرحلة 10 · 2/3] عرض التنبيهات في بطاقتها.
+function renderAlerts() {
+  const el = document.getElementById('alertsList');
+  if (!el) return;
+  const alerts = getAlerts();
+  if (!alerts.length) { el.innerHTML = '<p class="empty">لا تنبيهات حالياً</p>'; return; }
+  el.innerHTML = alerts.map((a) => `<div class="holding-qty">${a.icon} ${escapeHtml(a.text)}</div>`).join('');
+}
+
+// [مرحلة 6] عرض صندوق الضريبة في بطاقته.
+function renderTaxFund() {
+  const balance = getTaxBalance();
+  setMetric('taxFunded', formatMoney(getTaxFunded()), 'neutral');
+  setMetric('taxPaid', formatMoney(getTaxPaid()), 'neutral');
+  setMetric('taxBalance', formatMoney(balance), balance >= 0 ? 'positive' : 'negative');
+}
+
+/* =====================================================================
+ * [مرحلة 7 · 1/4] طبقة التحليلات — دوال تُحسب عند الطلب من الأرشيف، بلا تخزين.
+ * ===================================================================== */
+// دخل الكوبونات (متضمّناً التوزيعات المضمومة) لكل سنة.
+function incomeByYear() {
+  const m = {};
+  for (const o of archiveOps) {
+    if (o.category === 'coupon' && o.date) {
+      const y = String(o.date).slice(0, 4);
+      m[y] = (m[y] || 0) + (o.payment || 0);
+    }
+  }
+  return m;
+}
+
+// دخل الكوبونات لكل شهر (YYYY-MM).
+function incomeByMonth() {
+  const m = {};
+  for (const o of archiveOps) {
+    if (o.category === 'coupon' && o.date) {
+      const ym = String(o.date).slice(0, 7);
+      m[ym] = (m[ym] || 0) + (o.payment || 0);
+    }
+  }
+  return m;
+}
+
+// رأس المال العائد من الاستحقاقات لكل سنة.
+function redemptionsByYear() {
+  const m = {};
+  for (const o of archiveOps) {
+    if (o.category === 'redemption' && o.date) {
+      const y = String(o.date).slice(0, 4);
+      m[y] = (m[y] || 0) + (o.payment || 0);
+    }
+  }
+  return m;
+}
+
+// الربح المحقق لكل سند (figi) — متوسط تكلفة من الأرشيف.
+function realizedProfitByBond() {
+  const holdings = {};
+  const result = {};
+  const sorted = [...archiveOps]
+    .filter((o) => o.figi && (o.category === 'buy' || o.category === 'sell'))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+  for (const o of sorted) {
+    const h = holdings[o.figi] || (holdings[o.figi] = { qty: 0, cost: 0 });
+    if (o.category === 'buy') {
+      h.qty += o.quantity || 0;
+      h.cost += Math.abs(o.payment || 0);
+    } else {
+      const avg = h.qty > 0 ? h.cost / h.qty : 0;
+      const soldQty = Math.min(o.quantity || 0, h.qty);
+      result[o.figi] = (result[o.figi] || 0) + ((o.payment || 0) - avg * soldQty);
+      h.qty -= soldQty;
+      h.cost -= avg * soldQty;
+    }
+  }
+  return result;
+}
+
+/* =====================================================================
+ * [مرحلة 9 · 1/3] العائد المتوقع حتى الاستحقاق (من المحفظة الحيّة + الأرشيف)
+ * ---------------------------------------------------------------------
+ *  عائد رأس المال = (الاسمي − السعر الحالي) × الكمية  (دقيق، سحب نحو القيمة الاسمية).
+ *  الكوبونات المتبقية = كوبونات آخر 12 شهراً لهذا السند × سنوات حتى الاستحقاق (تقديري).
+ * ===================================================================== */
+function couponsLast12mByFigi() {
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+  const m = {};
+  for (const o of archiveOps) {
+    if (o.category === 'coupon' && o.figi && o.date && new Date(o.date) >= cutoff) {
+      m[o.figi] = (m[o.figi] || 0) + (o.payment || 0);
+    }
+  }
+  return m;
+}
+
+function expectedReturnToMaturity() {
+  const recent = couponsLast12mByFigi();
+  const now = new Date();
+  const rows = [];
+  let totalCapital = 0;
+  let totalCoupons = 0;
+  for (const p of livePositions) {
+    if (p.instrumentType !== 'bond' || !(p.quantity > 0) || !p.maturityDate) continue;
+    const qty = p.quantity;
+    const nominal = p.nominal || 0;
+    const price = p.currentPrice != null ? p.currentPrice : (p.averagePositionPrice || 0);
+    const capital = (nominal - price) * qty;
+    const years = Math.max((new Date(p.maturityDate) - now) / (365.25 * 86400000), 0);
+    const coupons = (recent[p.figi] || 0) * years;
+    totalCapital += capital;
+    totalCoupons += coupons;
+    rows.push({
+      title: p.ticker || p.name || p.figi,
+      maturity: String(p.maturityDate).slice(0, 10),
+      capital,
+      coupons,
+      total: capital + coupons,
+    });
+  }
+  rows.sort((a, b) => b.total - a.total);
+  return { rows, totalCapital, totalCoupons, total: totalCapital + totalCoupons };
+}
+
+// [مرحلة 7 · 3/4] عرض التحليلات (يعيد استخدام أنماط الصفوف الموجودة).
+function renderRows(containerId, entries, fmt) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!entries.length) { el.innerHTML = '<p class="empty">لا توجد بيانات</p>'; return; }
+  el.innerHTML = entries
+    .map(([k, v]) => `
+      <div class="holding-row">
+        <div class="holding-top">
+          <div class="holding-symbol">${escapeHtml(String(k))}</div>
+          <div class="holding-value"><div class="amount tabular ${v >= 0 ? 'positive' : 'negative'}">${fmt(v)}</div></div>
+        </div>
+      </div>`)
+    .join('');
+}
+
+function renderAnalytics() {
+  const money = (v) => formatMoney(v) + ' ₽';
+  const signed = (v) => (v >= 0 ? '+' : '') + formatMoney(v) + ' ₽';
+  renderRows('analyticsIncomeYear', Object.entries(incomeByYear()).sort((a, b) => b[0].localeCompare(a[0])), money);
+  renderRows('analyticsRedemptions', Object.entries(redemptionsByYear()).sort((a, b) => b[0].localeCompare(a[0])), money);
+  renderRows('analyticsProfitBond', Object.entries(realizedProfitByBond()).sort((a, b) => b[1] - a[1]), signed);
+  renderRows('analyticsIncomeMonth', Object.entries(incomeByMonth()).sort((a, b) => b[0].localeCompare(a[0])), money);
+  renderExpectedReturn();
+}
+
+// [مرحلة 9 · 2/3] عرض العائد المتوقع حتى الاستحقاق.
+function renderExpectedReturn() {
+  const r = expectedReturnToMaturity();
+  setMetric('ermCapital', formatMoney(r.totalCapital), r.totalCapital >= 0 ? 'positive' : 'negative');
+  setMetric('ermCoupons', formatMoney(r.totalCoupons), 'neutral');
+  setMetric('ermTotal', formatMoney(r.total), r.total >= 0 ? 'positive' : 'negative');
+  const el = document.getElementById('ermList');
+  if (!el) return;
+  if (!r.rows.length) { el.innerHTML = '<p class="empty">لا توجد سندات</p>'; return; }
+  el.innerHTML = r.rows
+    .map((b) => `
+      <div class="holding-row">
+        <div class="holding-top">
+          <div>
+            <div class="holding-symbol">${escapeHtml(b.title)}</div>
+            <div class="holding-qty">الاستحقاق: ${b.maturity}</div>
+          </div>
+          <div class="holding-value"><div class="amount tabular ${b.total >= 0 ? 'positive' : 'negative'}">${b.total >= 0 ? '+' : ''}${formatMoney(b.total)} ₽</div></div>
+        </div>
+      </div>`)
+    .join('');
+}
+
+/* =====================================================================
+ * [مرحلة 3 · 3/5] النافذة المنبثقة للتصنيف
+ * ===================================================================== */
+const promptedOpIds = new Set(); // [مرحلة 4] عمليات عُرضت في نافذة هذه الجلسة
+let archiveLoaded = false;
+let classificationsLoaded = false;
+
+function renderClassifyModal(ops) {
+  const list = document.getElementById('classifyList');
+  list.innerHTML = ops
+    .map((o) => {
+      const kind = opKind(o);
+      const label = kind === 'deposit' ? 'إيداع' : 'سحب';
+      const options = CLASSIFY_CATEGORIES[kind]
+        .map((c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`)
+        .join('');
+      return `
+        <div class="classify-row" data-op-id="${escapeHtml(String(o.id))}" data-kind="${kind}">
+          <div class="classify-info">
+            <div class="classify-amount ${kind === 'deposit' ? 'positive' : 'negative'}">${label} ${formatMoney(Math.abs(o.payment || 0))} ₽</div>
+            <div class="classify-date">${String(o.date || '').slice(0, 10)}</div>
+          </div>
+          <select class="classify-select">${options}</select>
+        </div>`;
+    })
+    .join('');
+}
+
+function openClassifyModal(ops) {
+  if (!ops || !ops.length) return;
+  renderClassifyModal(ops);
+  document.getElementById('classifyModal').classList.remove('hidden');
+}
+
+function closeClassifyModal() {
+  document.getElementById('classifyModal').classList.add('hidden');
+}
+
+// يفتح النافذة مرة واحدة عند وجود عمليات غير مصنّفة (الدفعة القديمة).
+function maybePromptClassify() {
+  if (!archiveLoaded || !classificationsLoaded) return;
+  const modal = document.getElementById('classifyModal');
+  if (modal && !modal.classList.contains('hidden')) return; // النافذة مفتوحة — لا نقاطع
+  // الجديد فقط: غير مصنّف ولم يُعرض في هذه الجلسة.
+  const pending = getUnclassifiedOps().filter((o) => !promptedOpIds.has(String(o.id)));
+  if (pending.length === 0) return;
+  pending.forEach((o) => promptedOpIds.add(String(o.id)));
+  openClassifyModal(pending);
+}
+
+document.getElementById('classifyLaterBtn')?.addEventListener('click', closeClassifyModal);
+document.getElementById('classifySaveBtn')?.addEventListener('click', async () => {
+  const rows = [...document.querySelectorAll('.classify-row')];
+  const decisions = rows.map((r) => ({
+    operationId: r.dataset.opId,
+    kind: r.dataset.kind,
+    categoryId: r.querySelector('.classify-select').value,
+  }));
+  const btn = document.getElementById('classifySaveBtn');
+  btn.disabled = true;
+  btn.textContent = 'جارٍ الحفظ…';
+  try {
+    await saveClassifications(decisions);
+    showToast('تم حفظ ' + decisions.length + ' تصنيفاً');
+    closeClassifyModal();
+  } catch (err) {
+    showToast('تعذّر الحفظ: ' + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'حفظ الكل';
+  }
+});
+
+/* =====================================================================
+ * [مرحلة 8 · 1/3] الفلاتر — تعبئة السنوات + ربط عناصر التحكم
+ * ===================================================================== */
+function populateYearFilter() {
+  const sel = document.getElementById('filterYear');
+  if (!sel) return;
+  const years = [...new Set(archiveOps.map((o) => String(o.date || '').slice(0, 4)).filter(Boolean))]
+    .sort()
+    .reverse();
+  const current = sel.value;
+  sel.innerHTML =
+    '<option value="all">كل السنوات</option>' +
+    years.map((y) => `<option value="${y}">${y}</option>`).join('');
+  if (current && [...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+// [مرحلة 8 · 2/3] تقرير مختصر للسنة المختارة (أو الكل).
+function renderReport() {
+  const el = document.getElementById('reportSummary');
+  if (!el) return;
+  const inYear = (o) => filterYear === 'all' || String(o.date || '').slice(0, 4) === filterYear;
+  let coupons = 0, redemptions = 0, deposits = 0, withdrawals = 0;
+  for (const o of archiveOps) {
+    if (!inYear(o)) continue;
+    const pay = o.payment || 0;
+    if (o.category === 'coupon') coupons += pay;
+    else if (o.category === 'redemption') redemptions += pay;
+    else if (o.category === 'deposit') deposits += pay;
+    else if (o.category === 'withdrawal') withdrawals += Math.abs(pay);
+  }
+  const title = filterYear === 'all' ? 'كل السنوات' : 'سنة ' + filterYear;
+  el.innerHTML =
+    `<div class="holding-qty">تقرير ${title}:</div>` +
+    `<div class="holding-qty">كوبونات: ${formatMoney(coupons)} · استحقاقات: ${formatMoney(redemptions)}</div>` +
+    `<div class="holding-qty">إيداعات: ${formatMoney(deposits)} · سحوبات: ${formatMoney(withdrawals)}</div>`;
+}
+
+document.getElementById('filterCategory')?.addEventListener('change', (e) => {
+  filterCategory = e.target.value;
+  renderTransactions();
+  renderReport();
+});
+document.getElementById('filterYear')?.addEventListener('change', (e) => {
+  filterYear = e.target.value;
+  renderTransactions();
+  renderReport();
+});
+
 onAuthStateChanged(auth, (user) => {
   if (user) {
     startListening(user.uid);
@@ -540,13 +986,32 @@ function startListening(uid) {
   priceCollection = collection(db, userDataPath, 'data', 'prices');
   bondInfoCollection = collection(db, userDataPath, 'data', 'bondInfo');
   operationsCollection = collection(db, userDataPath, 'data', 'operations');
+  classificationsCollection = collection(db, userDataPath, 'data', 'classifications');
+
+  // [مرحلة 3 · 1/5] قراءة قراراتي (لا تُمسّ بالمزامنة أبداً).
+  onSnapshot(
+    classificationsCollection,
+    (snap) => {
+      classifications = {};
+      snap.docs.forEach((d) => {
+        classifications[d.id] = d.data();
+      });
+      classificationsLoaded = true;
+      renderAll();
+      console.log('[تصنيف] محفوظة:', snap.size, '| تحتاج تصنيف الآن:', getUnclassifiedOps().length);
+      maybePromptClassify();
+    },
+    (err) => showToast('خطأ في قراءة التصنيفات: ' + err.message, true),
+  );
 
   // [مرحلة 2] الاستماع للأرشيف + جلب المحفظة الحيّة + مزامنة.
   onSnapshot(
     operationsCollection,
     (snap) => {
       archiveOps = snap.docs.map((d) => d.data());
+      archiveLoaded = true;
       renderAll();
+      maybePromptClassify();
     },
     (err) => showToast('خطأ في قراءة الأرشيف: ' + err.message, true),
   );
