@@ -18,6 +18,26 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
 
   <link rel="stylesheet" href="style.css" />
+
+  <!-- [مرحلة 3] أنماط نافذة التصنيف (معزولة، لا تمسّ التصميم) -->
+  <style>
+    .classify-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+    .classify-modal.hidden { display: none; }
+    .classify-card { background: #fff; border-radius: 16px; width: 100%; max-width: 440px; max-height: 85vh; display: flex; flex-direction: column; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+    .classify-card h2 { margin: 0 0 4px; font-size: 18px; }
+    .classify-hint { margin: 0 0 12px; font-size: 13px; color: #6B7280; }
+    #classifyList { overflow-y: auto; flex: 1; }
+    .classify-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #F0F0F0; }
+    .classify-amount { font-weight: 600; font-size: 14px; }
+    .classify-amount.positive { color: #059669; }
+    .classify-amount.negative { color: #DC2626; }
+    .classify-date { font-size: 12px; color: #6B7280; }
+    .classify-select { padding: 8px; border: 1px solid #D1D5DB; border-radius: 8px; font-size: 14px; background: #fff; }
+    .classify-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .classify-actions button { flex: 1; padding: 12px; border: 0; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    #classifyLaterBtn { background: #E5E7EB; color: #374151; }
+    #classifySaveBtn { background: #1E3A8A; color: #fff; }
+  </style>
 </head>
 <body>
 
@@ -66,15 +86,103 @@
         </div>
       </div>
 
+      <!-- [مرحلة 6] صندوق الضريبة -->
+      <div class="card">
+        <h2><span class="icon">⏳</span> صندوق الضريبة</h2>
+        <div class="summary-grid">
+          <div class="metric">
+            <span class="label">مموّل للضريبة</span>
+            <span id="taxFunded" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">مدفوع للضريبة</span>
+            <span id="taxPaid" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">رصيد الصندوق</span>
+            <span id="taxBalance" class="value neutral tabular">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- [مرحلة 10] التنبيهات -->
+      <div class="card">
+        <h2><span class="icon">🔔</span> التنبيهات</h2>
+        <div id="alertsList"><p class="empty">لا تنبيهات حالياً</p></div>
+      </div>
+
     </section>
 
     <!-- ======================================================== السجل -->
     <section id="section-history" class="section">
+      <!-- [مرحلة 8] فلاتر وتقرير -->
+      <div class="card">
+        <h2><span class="icon">🔍</span> فلترة وتقرير</h2>
+        <div class="field-row">
+          <div class="field">
+            <label for="filterCategory">النوع</label>
+            <select id="filterCategory">
+              <option value="all">الكل</option>
+              <option value="buy">شراء</option>
+              <option value="sell">بيع</option>
+              <option value="coupon">كوبون</option>
+              <option value="redemption">استحقاق</option>
+              <option value="deposit">إيداع</option>
+              <option value="withdrawal">سحب</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="filterYear">السنة</label>
+            <select id="filterYear"><option value="all">كل السنوات</option></select>
+          </div>
+        </div>
+        <div id="reportSummary"></div>
+      </div>
       <div class="card">
         <h2><span class="icon">📜</span> سجل العمليات</h2>
         <div id="txList">
           <p class="empty">لا توجد عمليات مسجلة بعد</p>
         </div>
+      </div>
+    </section>
+
+    <!-- [مرحلة 7] التحليلات -->
+    <section id="section-analytics" class="section">
+      <div class="card">
+        <h2><span class="icon">📈</span> الدخل حسب السنة</h2>
+        <div id="analyticsIncomeYear"><p class="empty">—</p></div>
+      </div>
+      <div class="card">
+        <h2><span class="icon">🏦</span> الاستحقاقات حسب السنة</h2>
+        <div id="analyticsRedemptions"><p class="empty">—</p></div>
+      </div>
+      <div class="card">
+        <h2><span class="icon">💹</span> الربح المحقق حسب السند</h2>
+        <div id="analyticsProfitBond"><p class="empty">—</p></div>
+      </div>
+      <div class="card">
+        <h2><span class="icon">📅</span> الدخل حسب الشهر</h2>
+        <div id="analyticsIncomeMonth"><p class="empty">—</p></div>
+      </div>
+
+      <!-- [مرحلة 9] العائد المتوقع حتى الاستحقاق -->
+      <div class="card">
+        <h2><span class="icon">🎯</span> العائد المتوقع حتى الاستحقاق</h2>
+        <div class="summary-grid">
+          <div class="metric">
+            <span class="label">عائد رأس المال</span>
+            <span id="ermCapital" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">كوبونات متبقية (تقديري)</span>
+            <span id="ermCoupons" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">إجمالي متوقع</span>
+            <span id="ermTotal" class="value neutral tabular">—</span>
+          </div>
+        </div>
+        <div id="ermList"></div>
       </div>
     </section>
 
@@ -90,6 +198,10 @@
       <span class="nav-icon">📜</span>
       العمليات
     </button>
+    <button type="button" class="nav-btn" data-target="section-analytics">
+      <span class="nav-icon">📈</span>
+      تحليلات
+    </button>
   </nav>
 
   <!-- ================================================== دعوة للتثبيت -->
@@ -97,6 +209,19 @@
     <p>ثبّت التطبيق على شاشتك الرئيسية لتفتحه بسرعة</p>
     <button type="button" id="installYesBtn" class="install-yes">تثبيت</button>
     <button type="button" id="installCloseBtn" class="btn-icon-close">✕</button>
+  </div>
+
+  <!-- [مرحلة 3] نافذة تصنيف العمليات (تظهر عند وجود غير مصنّف) -->
+  <div id="classifyModal" class="classify-modal hidden">
+    <div class="classify-card">
+      <h2>عمليات تحتاج تصنيف</h2>
+      <p class="classify-hint">صنّف كل عملية ثم اضغط «حفظ الكل».</p>
+      <div id="classifyList"></div>
+      <div class="classify-actions">
+        <button type="button" id="classifyLaterBtn">لاحقاً</button>
+        <button type="button" id="classifySaveBtn">حفظ الكل</button>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="app.js"></script>
