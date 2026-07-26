@@ -116,33 +116,45 @@
           </div>
         </div>
       </div>
-      <div class="card">
-        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg></span> الأرباح المحققة حسب السنة</h2>
-        <p class="helper-text">مجموع كل السنوات يساوي «الربح المحقق» في الملخص. تحت كل سنة تفصيل مصادرها.</p>
-        <div id="analyticsProfitYear"><p class="empty">—</p></div>
-      </div>
-      <div class="card">
-        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="M16.71 13.88l.7.71-2.82 2.82"/></svg></span> الأرباح المحققة حسب السند</h2>
-        <div id="analyticsProfitBond"><p class="empty">—</p></div>
-      </div>
-      <div class="card">
-        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg></span> دخل الكوبونات حسب الشهر</h2>
-        <div id="analyticsIncomeMonth"><p class="empty">—</p></div>
-      </div>
-      <div class="card">
-        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22h18"/><path d="M6 18v-7"/><path d="M10 18v-7"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M12 2l9 5H3l9-5Z"/></svg></span> رأس المال العائد من الاستحقاقات</h2>
-        <p class="helper-text">المبالغ المستردة عند استحقاق السندات — رجوع رأس مال وليست ربحاً. الربح منها يظهر في بطاقتَي الأرباح أعلاه.</p>
-        <div id="analyticsRedemptions"><p class="empty">—</p></div>
-      </div>
+      <details class="card accordion">
+        <summary><h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg></span> الأرباح المحققة حسب السنة</h2></summary>
+        <div class="accordion-body">
+          <p class="helper-text">مجموع كل السنوات يساوي «الربح المحقق» في الملخص. تحت كل سنة تفصيل مصادرها.</p>
+          <div id="analyticsProfitYear"><p class="empty">—</p></div>
+        </div>
+      </details>
+      <details class="card accordion">
+        <summary><h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="M16.71 13.88l.7.71-2.82 2.82"/></svg></span> الأرباح المحققة حسب السند</h2></summary>
+        <div class="accordion-body">
+          <div id="analyticsProfitBond"><p class="empty">—</p></div>
+        </div>
+      </details>
+      <details class="card accordion">
+        <summary><h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg></span> دخل الكوبونات حسب الشهر</h2></summary>
+        <div class="accordion-body">
+          <div id="analyticsIncomeMonth"><p class="empty">—</p></div>
+        </div>
+      </details>
+      <details class="card accordion">
+        <summary><h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22h18"/><path d="M6 18v-7"/><path d="M10 18v-7"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M12 2l9 5H3l9-5Z"/></svg></span> رأس المال العائد من الاستحقاقات</h2></summary>
+        <div class="accordion-body">
+          <p class="helper-text">المبالغ المستردة عند استحقاق السندات — رجوع رأس مال وليست ربحاً. الربح منها يظهر في بطاقتَي الأرباح أعلاه.</p>
+          <div id="analyticsRedemptions"><p class="empty">—</p></div>
+        </div>
+      </details>
       <div class="card">
         <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span> العائد المتوقع حتى الاستحقاق</h2>
         <div class="summary-grid">
+          <div class="metric">
+            <span class="label">العائد السنوي</span>
+            <span id="ermYield" class="value neutral tabular">—</span>
+          </div>
           <div class="metric">
             <span class="label">فرق القيمة الاسمية</span>
             <span id="ermCapital" class="value neutral tabular">—</span>
           </div>
           <div class="metric">
-            <span class="label">كوبونات متبقية (تقديري)</span>
+            <span class="label">الكوبونات المتبقية</span>
             <span id="ermCoupons" class="value neutral tabular">—</span>
           </div>
           <div class="metric">

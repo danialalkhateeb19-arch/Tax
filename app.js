@@ -254,6 +254,7 @@ async function loadPortfolio() {
   livePositions = data.positions || [];
   markSynced();
   renderAll();
+  refreshMoexAll();
 }
 
 // [تعديل الواجهة] بطاقة الملخص — أربعة أرقام.
@@ -393,30 +394,67 @@ document.addEventListener('click', (e) => {
  * النقر على سند، ويُخزَّن في الذاكرة فقط. أي فشل يُتجاهل بصمت وتبقى
  * القيمة المشتقّة من أرشيفك كما هي.
  * ===================================================================== */
-const moexCouponCache = {};
+const moexData = {};   // ticker → { coupon, perYear, face, ytm } أو null
 
-async function fetchMoexCouponValue(symbol) {
+/**
+ * يجلب بيانات السند من بورصة موسكو: قيمة الكوبون، دوريته، القيمة الاسمية،
+ * والعائد حتى الاستحقاق. العائد هنا هو نفسه الذي تعرضه تنكوف والمواقع
+ * المالية (доходность к погашению).
+ * أي فشل يُخزَّن كـ null فلا يُعاد الطلب، والتطبيق يعمل بدونه.
+ */
+async function fetchMoexBond(symbol) {
   if (!symbol) return null;
-  if (symbol in moexCouponCache) return moexCouponCache[symbol];
+  if (symbol in moexData) return moexData[symbol];
   for (const board of ['TQOB', 'TQCB', 'TQIR']) {
     try {
       const url = `https://iss.moex.com/iss/engines/stock/markets/bonds/boards/${board}/securities/${encodeURIComponent(symbol)}.json?iss.meta=off`;
       const res = await fetch(url);
       if (!res.ok) continue;
-      const json = await res.json();
-      const cols = json?.securities?.columns;
-      const row = json?.securities?.data?.[0];
-      if (!Array.isArray(cols) || !Array.isArray(row)) continue;
-      const f = {};
-      cols.forEach((c, i) => { f[c] = row[i]; });
-      const v = parseFloat(f['COUPONVALUE']);
-      if (!Number.isNaN(v) && v > 0) { moexCouponCache[symbol] = v; return v; }
+      const j = await res.json();
+      const pick = (block) => {
+        const cols = j?.[block]?.columns;
+        const row = j?.[block]?.data?.[0];
+        if (!Array.isArray(cols) || !Array.isArray(row)) return {};
+        const o = {};
+        cols.forEach((c, i) => { o[c] = row[i]; });
+        return o;
+      };
+      const sec = pick('securities');
+      const md = pick('marketdata');
+      if (!Object.keys(sec).length) continue;
+
+      const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      const coupon = num(sec.COUPONVALUE);
+      const period = num(sec.COUPONPERIOD);
+      const face = num(sec.FACEVALUE);
+      // العائد: من التداول اللحظي أولاً، وإلا من سعر الإغلاق المرجّح
+      const ytm = num(md.YIELD) ?? num(sec.YIELDATPREVWAPRICE);
+
+      if (coupon == null && ytm == null) continue;
+      const info = {
+        coupon,
+        perYear: period > 0 ? Math.round(365 / period) : null,
+        face,
+        ytm: ytm != null && ytm > -100 && ytm < 300 ? ytm : null,
+      };
+      moexData[symbol] = info;
+      return info;
     } catch {
       continue;
     }
   }
-  moexCouponCache[symbol] = null;
+  moexData[symbol] = null;
   return null;
+}
+
+/** يجلب بيانات كل السندات المملوكة — يُستدعى بعد كل تحميل للمحفظة. */
+async function refreshMoexAll() {
+  const symbols = [...new Set(
+    livePositions.filter((p) => p.instrumentType === 'bond' && p.ticker).map((p) => p.ticker),
+  )];
+  if (!symbols.length) return;
+  await Promise.allSettled(symbols.map((sym) => { delete moexData[sym]; return fetchMoexBond(sym); }));
+  renderAll();
 }
 
 /* =====================================================================
@@ -451,18 +489,29 @@ function markSynced() {
   renderLastSync();
 }
 
-async function onRefreshClick() {
+/** تحديث شامل: المحفظة والعمليات من تنكوف، ثم بيانات السندات من موسكو. */
+let refreshing = false;
+
+async function refreshAll(manual) {
+  if (refreshing) return;
+  refreshing = true;
   const btn = document.getElementById('refreshBtn');
-  if (btn?.classList.contains('spinning')) return;
   btn?.classList.add('spinning');
   try {
     await Promise.allSettled([loadPortfolio(), syncOperations()]);
+    await refreshMoexAll();
     markSynced();
-    showToast('تم التحديث');
+    renderAll();
+    if (manual) showToast('تم التحديث');
+  } catch (err) {
+    if (manual) showToast('تعذّر التحديث: ' + err.message, true);
   } finally {
+    refreshing = false;
     btn?.classList.remove('spinning');
   }
 }
+
+const AUTO_REFRESH_MS = 3 * 60 * 1000;
 
 /** تصدير CSV بترميز UTF-8 مع BOM ليفتح في Excel بعربية سليمة. */
 function onExportClick() {
@@ -511,10 +560,12 @@ function onExportClick() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('refreshBtn')?.addEventListener('click', onRefreshClick);
+  document.getElementById('refreshBtn')?.addEventListener('click', () => refreshAll(true));
   document.getElementById('exportBtn')?.addEventListener('click', onExportClick);
   renderLastSync();
   setInterval(renderLastSync, 20000);
+  // تحديث تلقائي كل 3 دقائق — يتوقف عندما تكون الصفحة في الخلفية
+  setInterval(() => { if (!document.hidden) refreshAll(false); }, AUTO_REFRESH_MS);
 });
 
 /**
@@ -566,8 +617,9 @@ function openBondModal(figi) {
   document.getElementById('bondModal').classList.remove('hidden');
 
   // قيمة الكوبون الرسمية من بورصة موسكو — تصل لاحقاً وتحدّث الصفّين إن وُجدت.
-  fetchMoexCouponValue(p.ticker).then((v) => {
-    if (v == null || openModalFigi !== String(figi)) return;
+  fetchMoexBond(p.ticker).then((d) => {
+    const v = d && d.coupon;
+    if (!v || openModalFigi !== String(figi)) return;
     const a = document.querySelector('[data-row="couponUnit"]');
     const b = document.querySelector('[data-row="nextPayout"]');
     if (a) a.textContent = `${formatMoney(v)} ₽`;
@@ -1022,32 +1074,69 @@ function couponsLast12mByFigi() {
 }
 
 function expectedReturnToMaturity() {
-  const recent = couponsLast12mByFigi();
   const now = new Date();
   const rows = [];
   let totalCapital = 0;
   let totalCoupons = 0;
+  let totalInvested = 0;
+  let known = 0;
+
   for (const p of livePositions) {
     if (p.instrumentType !== 'bond' || !(p.quantity > 0) || !p.maturityDate) continue;
     const qty = p.quantity;
-    const nominal = p.nominal || 0;
-    const price = p.currentPrice != null ? p.currentPrice : (p.averagePositionPrice || 0);
-    const capital = (nominal - price) * qty;
+    const price = (p.currentPrice != null ? p.currentPrice : p.averagePositionPrice) || 0;
+    const m = moexData[p.ticker] || null;
+    const nominal = p.nominal || (m && m.face) || 0;
+    if (!(price > 0) || !(nominal > 0)) continue;
+
     const years = Math.max((new Date(p.maturityDate) - now) / (365.25 * 86400000), 0);
-    const coupons = (recent[p.figi] || 0) * years;
-    totalCapital += capital;
-    totalCoupons += coupons;
+
+    // قيمة الكوبون: من بورصة موسكو أولاً، وإلا من آخر كوبون استلمته فعلاً.
+    const unit = (m && m.coupon > 0) ? m.coupon : lastCouponPerUnit(p.figi, qty);
+    const perYear = p.couponQuantityPerYear || (m && m.perYear) || null;
+
+    // بلا قيمة كوبون موثوقة لا نخمّن — الرقم الخاطئ أسوأ من غيابه.
+    const hasCoupon = unit > 0 && perYear > 0;
+    const coupons = hasCoupon ? unit * perYear * years * qty : null;
+    const capital = (nominal - price) * qty;
+    const invested = price * qty;
+    const total = coupons == null ? null : coupons + capital;
+
+    // العائد السنوي: من بورصة موسكو مباشرة (نفس رقم تنكوف)، وإلا نحسبه.
+    const ytm = (m && m.ytm != null)
+      ? m.ytm
+      : (total != null && invested > 0 && years > 0 ? (total / invested) / years * 100 : null);
+
+    if (total != null) {
+      totalCapital += capital;
+      totalCoupons += coupons;
+      totalInvested += invested;
+      known += 1;
+    }
+
     rows.push({
-      title: p.ticker || p.name || p.figi,
+      title: p.name || p.ticker || p.figi,
       maturity: String(p.maturityDate).slice(0, 10),
-      capital,
-      coupons,
-      total: capital + coupons,
+      years, capital, coupons, total, ytm,
     });
   }
-  rows.sort((a, b) => b.total - a.total);
-  return { rows, totalCapital, totalCoupons, total: totalCapital + totalCoupons };
+
+  rows.sort((a, b) => (b.ytm ?? -Infinity) - (a.ytm ?? -Infinity));
+  const total = known ? totalCapital + totalCoupons : null;
+  // متوسط العائد السنوي مرجّحاً بحجم كل مركز
+  const wYtm = (() => {
+    let num = 0, den = 0;
+    for (const r of rows) {
+      if (r.ytm == null || r.total == null) continue;
+      const w = Math.abs(r.capital) + Math.abs(r.coupons || 0);
+      num += r.ytm * (w || 1); den += (w || 1);
+    }
+    return den ? num / den : null;
+  })();
+
+  return { rows, totalCapital: known ? totalCapital : null, totalCoupons: known ? totalCoupons : null, total, ytm: wYtm };
 }
+
 
 // [مرحلة 7 · 3/4] عرض التحليلات (يعيد استخدام أنماط الصفوف الموجودة).
 function renderRows(containerId, entries, fmt) {
@@ -1083,7 +1172,10 @@ function realizedBreakdown() {
     r[field] += v;
     r.total += v;
   };
-  const nameOf = (o) => o.ticker || o.name || o.figi || '—';
+  // اسم السند كما يعرضه تنكوف، لا الرمز — أوضح للقراءة.
+  const nameByFigi = {};
+  for (const p of livePositions) if (p.figi && p.name) nameByFigi[p.figi] = p.name;
+  const nameOf = (o) => nameByFigi[o.figi] || o.name || o.ticker || o.figi || '—';
 
   const sorted = [...archiveOps]
     .filter((o) => o.figi && ['buy', 'sell', 'redemption'].includes(o.category))
@@ -1115,12 +1207,21 @@ function realizedBreakdown() {
   return { bond, year };
 }
 
-function renderBreakdown(containerId, entries) {
+function renderBreakdown(containerId, entries, simple = false) {
   const el = document.getElementById(containerId);
   if (!el) return;
   if (!entries.length) { el.innerHTML = '<p class="empty">لا توجد بيانات</p>'; return; }
   el.innerHTML = entries
     .map(([k, r]) => {
+      if (simple) {
+        return `
+      <div class="holding-row">
+        <div class="holding-top">
+          <div><div class="holding-symbol">${escapeHtml(String(k))}</div></div>
+          <div class="holding-value"><div class="amount tabular ${r.total >= 0 ? 'positive' : 'negative'}">${r.total >= 0 ? '+' : '−'}${formatMoney(Math.abs(r.total))} ₽</div></div>
+        </div>
+      </div>`;
+      }
       const parts = [];
       if (Math.abs(r.coupons) > 0.005) parts.push(`كوبونات ${formatMoney(r.coupons)}`);
       if (Math.abs(r.trading) > 0.005) parts.push(`تداول ${formatMoney(r.trading)}`);
@@ -1143,7 +1244,7 @@ function renderAnalytics() {
   const money = (v) => formatMoney(v) + ' ₽';
   const signed = (v) => (v >= 0 ? '+' : '') + formatMoney(v) + ' ₽';
   const bd = realizedBreakdown();
-  renderBreakdown('analyticsProfitYear', Object.entries(bd.year).sort((a, b) => b[0].localeCompare(a[0])));
+  renderBreakdown('analyticsProfitYear', Object.entries(bd.year).sort((a, b) => b[0].localeCompare(a[0])), true);
   renderBreakdown('analyticsProfitBond', Object.entries(bd.bond).sort((a, b) => b[1].total - a[1].total));
   renderRows('analyticsIncomeMonth', Object.entries(incomeByMonth()).sort((a, b) => b[0].localeCompare(a[0])), money);
   renderRows('analyticsRedemptions', Object.entries(redemptionsByYear()).sort((a, b) => b[0].localeCompare(a[0])), money);
@@ -1153,9 +1254,15 @@ function renderAnalytics() {
 // [مرحلة 9 · 2/3] عرض العائد المتوقع حتى الاستحقاق.
 function renderExpectedReturn() {
   const r = expectedReturnToMaturity();
-  setMetric('ermCapital', formatMoney(r.totalCapital), r.totalCapital >= 0 ? 'positive' : 'negative');
-  setMetric('ermCoupons', formatMoney(r.totalCoupons), 'neutral');
-  setMetric('ermTotal', formatMoney(r.total), r.total >= 0 ? 'positive' : 'negative');
+  const pct = (v) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}%`);
+  const money = (v) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${formatMoney(Math.abs(v))}`);
+  const tone = (v) => (v == null ? 'neutral' : v >= 0 ? 'positive' : 'negative');
+
+  setMetric('ermYield', pct(r.ytm), tone(r.ytm));
+  setMetric('ermCoupons', money(r.totalCoupons), tone(r.totalCoupons));
+  setMetric('ermCapital', money(r.totalCapital), tone(r.totalCapital));
+  setMetric('ermTotal', money(r.total), tone(r.total));
+
   const el = document.getElementById('ermList');
   if (!el) return;
   if (!r.rows.length) { el.innerHTML = '<p class="empty">لا توجد سندات</p>'; return; }
@@ -1165,9 +1272,12 @@ function renderExpectedReturn() {
         <div class="holding-top">
           <div>
             <div class="holding-symbol">${escapeHtml(b.title)}</div>
-            <div class="holding-qty">الاستحقاق: ${b.maturity}</div>
+            <div class="holding-qty">الاستحقاق: ${b.maturity}${b.total == null ? ' · بانتظار بيانات الكوبون' : ''}</div>
           </div>
-          <div class="holding-value"><div class="amount tabular ${b.total >= 0 ? 'positive' : 'negative'}">${b.total >= 0 ? '+' : ''}${formatMoney(b.total)} ₽</div></div>
+          <div class="holding-value">
+            <div class="amount tabular ${tone(b.ytm)}">${pct(b.ytm)}</div>
+            <div class="pl tabular ${tone(b.total)}">${b.total == null ? '—' : money(b.total) + ' ₽'}</div>
+          </div>
         </div>
       </div>`)
     .join('');
