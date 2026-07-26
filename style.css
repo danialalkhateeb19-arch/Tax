@@ -102,6 +102,49 @@ h1, h2, h3 { color: var(--color-text); margin: 0; font-weight: 600; letter-spaci
   box-shadow: 0 0 0 3px rgba(148,163,184,.16);
 }
 
+
+/* ─────────────────────────────────── أزرار الشريط العلوي ───────────── */
+
+.header-actions {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.last-sync {
+  font-size: 11px;
+  color: var(--color-faint);
+  white-space: nowrap;
+  margin-inline-end: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.icon-btn {
+  width: 34px; height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: background .16s var(--ease), color .16s var(--ease), transform .12s var(--ease);
+}
+
+.icon-btn svg { width: 17px; height: 17px; display: block; }
+.icon-btn:hover { background: var(--color-primary-soft); color: var(--color-primary); }
+.icon-btn:active { transform: scale(.9); }
+
+.icon-btn.spinning { color: var(--color-primary); pointer-events: none; }
+.icon-btn.spinning svg { animation: spin .9s linear infinite; }
+
+@keyframes spin { to { transform: rotate(-360deg); } }
+
+@media (max-width: 340px) { .last-sync { display: none; } }
+
 /* ══════════════════════════════════════════════════════ المحتوى ═════ */
 
 main { max-width: 480px; margin: 0 auto; padding: 18px 16px 0; }
@@ -157,7 +200,35 @@ main { max-width: 480px; margin: 0 auto; padding: 18px 16px 0; }
 .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 .metric { background: var(--color-surface-2); border-radius: var(--radius-md); padding: 14px; }
-.metric .label { font-size: 12px; color: var(--color-muted); display: block; margin-bottom: 6px; font-weight: 400; }
+.metric .label {
+  font-size: 12px;
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  font-weight: 400;
+}
+
+/* زر الشرح — هادئ، يظهر بلون الأزرق عند اللمس فقط */
+.info-btn {
+  width: 15px; height: 15px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color .16s var(--ease), transform .12s var(--ease);
+}
+
+.info-btn svg { width: 13px; height: 13px; display: block; }
+.info-btn:hover { color: var(--color-primary); }
+.info-btn:active { transform: scale(.85); }
 .metric .value { font-size: 20px; font-weight: 600; display: block; letter-spacing: -.02em; line-height: 1.2; }
 
 .value.positive { color: var(--color-secondary); }
@@ -504,6 +575,58 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .bottom-nav button:active .nav-icon { transform: scale(.9); }
 .bottom-nav .nav-btn.active,
 .bottom-nav button.active { color: var(--color-primary); }
+
+/* ═════════════════════════════════════════════ نافذة الشرح ═══════ */
+
+.info-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,.42);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 110;
+  animation: fadeIn .2s var(--ease);
+}
+
+.info-modal-card {
+  background: var(--color-surface);
+  border-radius: 22px 22px 0 0;
+  width: 100%;
+  max-width: 480px;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  box-shadow: var(--shadow-lift);
+  animation: sheetUp .3s var(--ease);
+}
+
+.info-modal-card h2 { margin: 0 0 10px; font-size: 17px; font-weight: 600; }
+
+.info-modal-card p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--color-muted);
+}
+
+#infoModalClose {
+  width: 100%;
+  margin-top: 22px;
+  padding: 15px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--color-primary);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .18s var(--ease), transform .12s var(--ease);
+}
+
+#infoModalClose:hover { background: var(--color-primary-dark); }
+#infoModalClose:active { transform: scale(.985); }
 
 /* ═════════════════════════════════════════════ نافذة التصنيف ══════ */
 

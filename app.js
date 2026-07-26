@@ -252,6 +252,7 @@ async function loadPortfolio() {
     return;
   }
   livePositions = data.positions || [];
+  markSynced();
   renderAll();
 }
 
@@ -334,11 +335,201 @@ function renderHoldings() {
             <span class="bond-arrow">${up ? '▲' : '▼'}</span>
             ${up ? '+' : '−'}${formatMoney(Math.abs(chg))} ₽
             <span class="bond-pct">(${up ? '+' : '−'}${Math.abs(chgPct).toFixed(2)}%)</span>
-            <span class="bond-chg-label">منذ الشراء</span>
           </div>
         </div>`;
     })
     .join('');
+}
+
+
+
+/* =====================================================================
+ * [إضافة] شرح خانات البطاقات — عرض فقط، لا يمسّ أي حساب
+ * ===================================================================== */
+const INFO_TEXTS = {
+  sumPortfolioValue: ['قيمة المحفظة',
+    'قيمة كل ما تملكه في الحساب الآن: السندات بسعرها الحالي في السوق، زائد النقد الحر غير المستثمَر. الرقم يتحرّك مع تحرّك أسعار السندات.'],
+  sumRealized: ['الربح المحقق',
+    'الأرباح التي دخلت جيبك فعلاً، من ثلاثة مصادر: الكوبونات المستلمة، وفرق البيع عن الشراء، وفرق الاستحقاق (شراء السند بأقل من قيمته الاسمية واستردادها كاملة). لا يشمل أي ربح ورقي لم يتحقق بعد، ولا يخصم الضرائب والعمولات.'],
+  sumExpected: ['الربح المتوقع',
+    'ما يُتوقَّع أن تربحه لو احتفظت بسنداتك حتى تاريخ استحقاقها: الفرق بين القيمة الاسمية والسعر الحالي، زائد الكوبونات المتبقية حتى الاستحقاق. تقدير مبني على وتيرة الكوبونات الحالية، وقد يتغيّر إذا كان الكوبون متغيّراً.'],
+  sumReturnPct: ['نسبة الربح',
+    'الربح المحقق مقسوماً على مجموع ما أودعته نقداً في الحساب منذ فتحه. مثال: أودعت مليون روبل وربحت 130 ألفاً، فالنسبة 13٪. ملاحظة: الكوبونات التي أعدت استثمارها لا تُحسب في المقام، لذا النسبة الفعلية على رأس مالك العامل أقل قليلاً.'],
+  taxDue: ['المستحق',
+    'إجمالي ضريبة الدخل المفروضة عليك عبر كل السنوات المسجّلة، من 2023 حتى اليوم. رقم ثابت مأخوذ من سجلك، لا يُعاد حسابه من بيانات الوساطة.'],
+  taxPaid: ['المدفوع',
+    'ما سدّدته فعلاً لمصلحة الضرائب: مدفوعات السنوات السابقة المسجّلة في سجلك، زائد أي سحب من حساب الوساطة صنّفته بأنه دفع ضريبة.'],
+  taxSalary: ['الراتب',
+    'إجمالي راتبك المستلم في السنة الجارية حتى اليوم. هو الأساس الذي تُحسب منه ضريبة السنة: 13٪ حتى 2.4 مليون روبل، ثم 15٪ على ما زاد.'],
+  taxOwed: ['المستحق للدفع',
+    'ما تبقّى عليك تسديده لمصلحة الضرائب، أي ضريبة السنوات التي لم تُسدَّد بعد. السنة المقفلة لا تظهر هنا. ضريبة السنة الجارية تُدفع في السنة التالية قبل 15 يوليو.'],
+};
+
+function openInfoModal(key) {
+  const item = INFO_TEXTS[key];
+  if (!item) return;
+  document.getElementById('infoModalTitle').textContent = item[0];
+  document.getElementById('infoModalBody').textContent = item[1];
+  document.getElementById('infoModal').classList.remove('hidden');
+}
+
+function closeInfoModal() {
+  document.getElementById('infoModal').classList.add('hidden');
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.info-btn');
+  if (btn) { e.stopPropagation(); openInfoModal(btn.dataset.info); return; }
+  const modal = document.getElementById('infoModal');
+  if (modal && !modal.classList.contains('hidden')) {
+    if (e.target.id === 'infoModalClose' || e.target === modal) closeInfoModal();
+  }
+});
+
+/* =====================================================================
+ * [إضافة] قيمة الكوبون من بورصة موسكو — طلب واحد عند فتح النافذة فقط
+ * ---------------------------------------------------------------------
+ * لا يعمل عند تحميل التطبيق ولا يدخل في أي حساب. يُستدعى كسولاً عند
+ * النقر على سند، ويُخزَّن في الذاكرة فقط. أي فشل يُتجاهل بصمت وتبقى
+ * القيمة المشتقّة من أرشيفك كما هي.
+ * ===================================================================== */
+const moexCouponCache = {};
+
+async function fetchMoexCouponValue(symbol) {
+  if (!symbol) return null;
+  if (symbol in moexCouponCache) return moexCouponCache[symbol];
+  for (const board of ['TQOB', 'TQCB', 'TQIR']) {
+    try {
+      const url = `https://iss.moex.com/iss/engines/stock/markets/bonds/boards/${board}/securities/${encodeURIComponent(symbol)}.json?iss.meta=off`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const cols = json?.securities?.columns;
+      const row = json?.securities?.data?.[0];
+      if (!Array.isArray(cols) || !Array.isArray(row)) continue;
+      const f = {};
+      cols.forEach((c, i) => { f[c] = row[i]; });
+      const v = parseFloat(f['COUPONVALUE']);
+      if (!Number.isNaN(v) && v > 0) { moexCouponCache[symbol] = v; return v; }
+    } catch {
+      continue;
+    }
+  }
+  moexCouponCache[symbol] = null;
+  return null;
+}
+
+/* =====================================================================
+ * [إضافة] أزرار الشريط العلوي: تحديث · تصدير · آخر تحديث
+ * ===================================================================== */
+let lastSyncAt = null;
+
+function relativeTime(d) {
+  if (!d) return '—';
+  const sec = Math.max(0, Math.floor((Date.now() - d) / 1000));
+  if (sec < 10) return 'الآن';
+  if (sec < 60) return `قبل ${sec} ثانية`;
+  const min = Math.floor(sec / 60);
+  if (min === 1) return 'قبل دقيقة';
+  if (min === 2) return 'قبل دقيقتين';
+  if (min < 60) return `قبل ${min} دقيقة`;
+  const h = Math.floor(min / 60);
+  if (h === 1) return 'قبل ساعة';
+  if (h === 2) return 'قبل ساعتين';
+  if (h < 24) return `قبل ${h} ساعات`;
+  const days = Math.floor(h / 24);
+  return days === 1 ? 'قبل يوم' : `قبل ${days} أيام`;
+}
+
+function renderLastSync() {
+  const el = document.getElementById('lastSync');
+  if (el) el.textContent = relativeTime(lastSyncAt);
+}
+
+function markSynced() {
+  lastSyncAt = Date.now();
+  renderLastSync();
+}
+
+async function onRefreshClick() {
+  const btn = document.getElementById('refreshBtn');
+  if (btn?.classList.contains('spinning')) return;
+  btn?.classList.add('spinning');
+  try {
+    await Promise.allSettled([loadPortfolio(), syncOperations()]);
+    markSynced();
+    showToast('تم التحديث');
+  } finally {
+    btn?.classList.remove('spinning');
+  }
+}
+
+/** تصدير CSV بترميز UTF-8 مع BOM ليفتح في Excel بعربية سليمة. */
+function onExportClick() {
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [];
+
+  lines.push(q('السندات الحالية'));
+  lines.push(['السند', 'الكمية', 'متوسط الشراء', 'السعر الحالي', 'القيمة', 'الربح', 'النسبة %'].map(q).join(','));
+  for (const p of livePositions.filter((x) => x.instrumentType === 'bond' && (x.quantity || 0) > 0.0001)) {
+    const qty = p.quantity || 0;
+    const avg = p.averagePositionPrice || 0;
+    const price = (p.currentPrice != null ? p.currentPrice : avg) || 0;
+    const value = qty * price;
+    const cost = qty * avg;
+    const pl = value - cost;
+    lines.push([p.name || p.ticker || p.figi, qty, avg.toFixed(2), price.toFixed(2),
+      value.toFixed(2), pl.toFixed(2), (cost > 0 ? (pl / cost) * 100 : 0).toFixed(2)].map(q).join(','));
+  }
+
+  lines.push('');
+  lines.push(q('السجل الضريبي'));
+  lines.push(['السنة', 'الراتب السنوي', 'الضريبة', 'المدفوع', 'الحالة'].map(q).join(','));
+  for (const y of allYearSummaries()) {
+    lines.push([y.year, y.salary.toFixed(2), y.tax, y.paid, y.settled ? 'مسدّدة' : 'غير مسدّدة'].map(q).join(','));
+  }
+
+  lines.push('');
+  lines.push(q('سجل العمليات'));
+  lines.push(['التاريخ', 'النوع', 'السند', 'الكمية', 'المبلغ'].map(q).join(','));
+  const CAT = { buy: 'شراء', sell: 'بيع', coupon: 'كوبون', redemption: 'استحقاق', deposit: 'إيداع', withdrawal: 'سحب' };
+  for (const o of [...archiveOps].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))) {
+    if (!CAT[o.category]) continue;
+    lines.push([String(o.date || '').slice(0, 10), CAT[o.category], o.ticker || o.name || o.figi || '',
+      o.quantity || '', (o.payment || 0).toFixed(2)].map(q).join(','));
+  }
+
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `sanadati-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+  showToast('تم تصدير الملف');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('refreshBtn')?.addEventListener('click', onRefreshClick);
+  document.getElementById('exportBtn')?.addEventListener('click', onExportClick);
+  renderLastSync();
+  setInterval(renderLastSync, 20000);
+});
+
+/**
+ * [تعديل] قيمة الكوبون للسند الواحد — مشتقّة من آخر كوبون استلمته فعلاً
+ * لهذا السند: المبلغ المقبوض ÷ عدد السندات وقتها. لا تستدعي أي مصدر
+ * خارجي، ولا تمسّ الوسيط. تُعيد null إن لم يصل كوبون بعد.
+ */
+function lastCouponPerUnit(figi, currentQty) {
+  const ops = archiveOps
+    .filter((o) => o.category === 'coupon' && String(o.figi) === String(figi) && (o.payment || 0) > 0)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  if (!ops.length) return null;
+  const o = ops[0];
+  const q = (o.quantity || 0) > 0 ? o.quantity : currentQty;
+  return q > 0 ? (o.payment || 0) / q : null;
 }
 
 // [تعديل الواجهة] نافذة تفاصيل السند — عرض فقط، تقرأ من نفس بيانات المحفظة.
@@ -354,22 +545,40 @@ function openBondModal(figi) {
     ? String(p.maturityDate).slice(0, 10)
     : (info.maturityDate || null);
 
+  const couponUnit = lastCouponPerUnit(p.figi, qty);
+  const nextPayout = couponUnit != null ? couponUnit * qty : null;
+
   const rows = [
-    ['عدد الكوبونات السنوية', coupons != null ? `${coupons}` : '—'],
-    ['تاريخ الاستحقاق', maturity || '—'],
-    ['الكمية', formatQty(qty)],
-    ['متوسط سعر الشراء', `${formatMoney(avgCost)} ₽`],
-    ['السعر الحالي', `${formatMoney(price)} ₽`],
+    ['عدد الكوبونات السنوية', coupons != null ? `${coupons}` : '—', ''],
+    ['قيمة الكوبون للسند الواحد', couponUnit != null ? `${formatMoney(couponUnit)} ₽` : '—', 'couponUnit'],
+    ['العائد المتوقع للدفعة القادمة', nextPayout != null ? `${formatMoney(nextPayout)} ₽` : '—', 'nextPayout'],
+    ['تاريخ الاستحقاق', maturity || '—', ''],
+    ['الكمية', formatQty(qty), ''],
+    ['متوسط سعر الشراء', `${formatMoney(avgCost)} ₽`, ''],
+    ['السعر الحالي', `${formatMoney(price)} ₽`, ''],
   ];
 
   document.getElementById('bondModalTitle').textContent = p.name || p.ticker || p.figi || '—';
   document.getElementById('bondModalBody').innerHTML = rows
-    .map(([k, v]) => `<div class="bond-detail-row"><span>${k}</span><span class="tabular">${escapeHtml(v)}</span></div>`)
+    .map(([k, v, key]) => `<div class="bond-detail-row"><span>${k}</span><span class="tabular"${key ? ` data-row="${key}"` : ''}>${escapeHtml(v)}</span></div>`)
     .join('');
+  openModalFigi = String(figi);
   document.getElementById('bondModal').classList.remove('hidden');
+
+  // قيمة الكوبون الرسمية من بورصة موسكو — تصل لاحقاً وتحدّث الصفّين إن وُجدت.
+  fetchMoexCouponValue(p.ticker).then((v) => {
+    if (v == null || openModalFigi !== String(figi)) return;
+    const a = document.querySelector('[data-row="couponUnit"]');
+    const b = document.querySelector('[data-row="nextPayout"]');
+    if (a) a.textContent = `${formatMoney(v)} ₽`;
+    if (b) b.textContent = `${formatMoney(v * qty)} ₽`;
+  });
 }
 
+let openModalFigi = null;
+
 function closeBondModal() {
+  openModalFigi = null;
   document.getElementById('bondModal').classList.add('hidden');
 }
 
@@ -394,6 +603,7 @@ document.addEventListener('click', (e) => {
  * ===================================================================== */
 function renderTransactions() {
   const container = document.getElementById('txList');
+  if (!container) return; // صفحة العمليات محذوفة
   const CAT = { buy: 'شراء', sell: 'بيع', coupon: 'كوبون', redemption: 'استحقاق', deposit: 'إيداع', withdrawal: 'سحب' };
 
   const rows = archiveOps.filter((o) => {
@@ -694,7 +904,8 @@ function renderTaxFund() {
   const owed = getTaxOwed();
   setMetric('taxDue', formatMoney(getTaxDue()), 'neutral');
   setMetric('taxPaid', formatMoney(getTaxPaid()), 'neutral');
-  setMetric('taxFunded', formatMoney(getTaxFunded()), 'neutral');
+  const y = allYearSummaries().find((r) => r.year === new Date().getFullYear());
+  setMetric('taxSalary', formatMoney(y ? y.salary : 0), 'neutral');
   setMetric('taxOwed', formatMoney(owed), owed > getTaxFunded() ? 'negative' : 'neutral');
   renderTaxYears();
 }
@@ -854,13 +1065,88 @@ function renderRows(containerId, entries, fmt) {
     .join('');
 }
 
+
+/* =====================================================================
+ * [تعديل] تفصيل الربح المحقق حسب السنة وحسب السند
+ * ---------------------------------------------------------------------
+ * يستخدم نفس منطق متوسط التكلفة المستعمل في computeRealizedFromArchive،
+ * فمجموع كل البنود هنا يساوي «الربح المحقق» في الملخص بالضبط. الربح
+ * ثلاثة مصادر: كوبونات · فرق تداول (بيع) · فرق استحقاق.
+ * ===================================================================== */
+function realizedBreakdown() {
+  const stock = {};
+  const bond = {};
+  const year = {};
+  const bump = (obj, key, field, v) => {
+    if (!key) return;
+    const r = obj[key] || (obj[key] = { coupons: 0, trading: 0, redemption: 0, total: 0 });
+    r[field] += v;
+    r.total += v;
+  };
+  const nameOf = (o) => o.ticker || o.name || o.figi || '—';
+
+  const sorted = [...archiveOps]
+    .filter((o) => o.figi && ['buy', 'sell', 'redemption'].includes(o.category))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+
+  for (const o of sorted) {
+    const h = stock[o.figi] || (stock[o.figi] = { qty: 0, cost: 0 });
+    if (o.category === 'buy') {
+      h.qty += o.quantity || 0;
+      h.cost += Math.abs(o.payment || 0);
+      continue;
+    }
+    const avg = h.qty > 0 ? h.cost / h.qty : 0;
+    const raw = o.quantity || 0;
+    const outQty = o.category === 'redemption' && raw <= 0 ? h.qty : Math.min(raw, h.qty);
+    const gain = (o.payment || 0) - avg * outQty;
+    const field = o.category === 'redemption' ? 'redemption' : 'trading';
+    bump(bond, nameOf(o), field, gain);
+    bump(year, String(o.date || '').slice(0, 4), field, gain);
+    h.qty -= outQty;
+    h.cost -= avg * outQty;
+  }
+
+  for (const o of archiveOps) {
+    if (o.category !== 'coupon') continue;
+    bump(bond, nameOf(o), 'coupons', o.payment || 0);
+    bump(year, String(o.date || '').slice(0, 4), 'coupons', o.payment || 0);
+  }
+  return { bond, year };
+}
+
+function renderBreakdown(containerId, entries) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!entries.length) { el.innerHTML = '<p class="empty">لا توجد بيانات</p>'; return; }
+  el.innerHTML = entries
+    .map(([k, r]) => {
+      const parts = [];
+      if (Math.abs(r.coupons) > 0.005) parts.push(`كوبونات ${formatMoney(r.coupons)}`);
+      if (Math.abs(r.trading) > 0.005) parts.push(`تداول ${formatMoney(r.trading)}`);
+      if (Math.abs(r.redemption) > 0.005) parts.push(`استحقاق ${formatMoney(r.redemption)}`);
+      return `
+      <div class="holding-row">
+        <div class="holding-top">
+          <div>
+            <div class="holding-symbol">${escapeHtml(String(k))}</div>
+            <div class="holding-qty">${parts.join(' · ') || '—'}</div>
+          </div>
+          <div class="holding-value"><div class="amount tabular ${r.total >= 0 ? 'positive' : 'negative'}">${r.total >= 0 ? '+' : ''}${formatMoney(r.total)} ₽</div></div>
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
 function renderAnalytics() {
   const money = (v) => formatMoney(v) + ' ₽';
   const signed = (v) => (v >= 0 ? '+' : '') + formatMoney(v) + ' ₽';
-  renderRows('analyticsIncomeYear', Object.entries(incomeByYear()).sort((a, b) => b[0].localeCompare(a[0])), money);
-  renderRows('analyticsRedemptions', Object.entries(redemptionsByYear()).sort((a, b) => b[0].localeCompare(a[0])), money);
-  renderRows('analyticsProfitBond', Object.entries(realizedProfitByBond()).sort((a, b) => b[1] - a[1]), signed);
+  const bd = realizedBreakdown();
+  renderBreakdown('analyticsProfitYear', Object.entries(bd.year).sort((a, b) => b[0].localeCompare(a[0])));
+  renderBreakdown('analyticsProfitBond', Object.entries(bd.bond).sort((a, b) => b[1].total - a[1].total));
   renderRows('analyticsIncomeMonth', Object.entries(incomeByMonth()).sort((a, b) => b[0].localeCompare(a[0])), money);
+  renderRows('analyticsRedemptions', Object.entries(redemptionsByYear()).sort((a, b) => b[0].localeCompare(a[0])), money);
   renderExpectedReturn();
 }
 
