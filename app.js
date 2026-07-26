@@ -480,7 +480,7 @@ function relativeTime(d) {
 }
 
 function renderLastSync() {
-  const el = document.getElementById('lastSync');
+  const el = document.getElementById('lastSync'); // محذوف من الواجهة
   if (el) el.textContent = relativeTime(lastSyncAt);
 }
 
@@ -793,7 +793,6 @@ async function syncOperations() {
       if (n % 450 === 0) { await batch.commit(); batch = writeBatch(db); }
     }
     await batch.commit();
-    showToast('تمت مزامنة ' + ops.length + ' عملية');
     console.log('[مزامنة] العمليات المخزّنة:', ops.length, '| الحساب:', data.accountId);
   } catch (err) {
     showToast('تعذّر حفظ الأرشيف: ' + err.message, true);
@@ -1175,7 +1174,7 @@ function realizedBreakdown() {
   // اسم السند كما يعرضه تنكوف، لا الرمز — أوضح للقراءة.
   const nameByFigi = {};
   for (const p of livePositions) if (p.figi && p.name) nameByFigi[p.figi] = p.name;
-  const nameOf = (o) => nameByFigi[o.figi] || o.name || o.ticker || o.figi || '—';
+  const nameOf = (o) => o.name || nameByFigi[o.figi] || o.ticker || o.figi || '—';
 
   const sorted = [...archiveOps]
     .filter((o) => o.figi && ['buy', 'sell', 'redemption'].includes(o.category))
@@ -1218,7 +1217,7 @@ function renderBreakdown(containerId, entries, simple = false) {
       <div class="holding-row">
         <div class="holding-top">
           <div><div class="holding-symbol">${escapeHtml(String(k))}</div></div>
-          <div class="holding-value"><div class="amount tabular ${r.total >= 0 ? 'positive' : 'negative'}">${r.total >= 0 ? '+' : '−'}${formatMoney(Math.abs(r.total))} ₽</div></div>
+          <div class="holding-value"><div class="amount tabular ${r.total >= 0 ? 'positive' : 'negative'}">${r.total >= 0 ? '' : '−'}${formatMoney(Math.abs(r.total))} ₽</div></div>
         </div>
       </div>`;
       }
@@ -1245,7 +1244,7 @@ function renderAnalytics() {
   const signed = (v) => (v >= 0 ? '+' : '') + formatMoney(v) + ' ₽';
   const bd = realizedBreakdown();
   renderBreakdown('analyticsProfitYear', Object.entries(bd.year).sort((a, b) => b[0].localeCompare(a[0])), true);
-  renderBreakdown('analyticsProfitBond', Object.entries(bd.bond).sort((a, b) => b[1].total - a[1].total));
+  renderBreakdown('analyticsProfitBond', Object.entries(bd.bond).sort((a, b) => b[1].total - a[1].total), true);
   renderRows('analyticsIncomeMonth', Object.entries(incomeByMonth()).sort((a, b) => b[0].localeCompare(a[0])), money);
   renderRows('analyticsRedemptions', Object.entries(redemptionsByYear()).sort((a, b) => b[0].localeCompare(a[0])), money);
   renderExpectedReturn();
@@ -1260,7 +1259,11 @@ function renderExpectedReturn() {
 
   setMetric('ermYield', pct(r.ytm), tone(r.ytm));
   setMetric('ermCoupons', money(r.totalCoupons), tone(r.totalCoupons));
-  setMetric('ermCapital', money(r.totalCapital), tone(r.totalCapital));
+  // كم تبقّى من الضريبة المدفوعة لم تغطّه أرباح السندات بعد.
+  const gap = getTaxPaid() - computeRealizedFromArchive();
+  setMetric('ermTaxGap',
+    gap <= 0 ? 'مغطّاة بالكامل' : formatMoney(gap) + ' ₽',
+    gap <= 0 ? 'positive' : 'neutral');
   setMetric('ermTotal', money(r.total), tone(r.total));
 
   const el = document.getElementById('ermList');
