@@ -125,9 +125,16 @@ export const OPENING = {
   paidSoFar: {
     2023: 70632,    // مؤكّد
     2024: 307797,   // مؤكّد
-    2025: 314441,   // مؤكّد — أعلى من المستحق بـ 324.92 ₽ (راجع الملاحظة أدناه)
+    2025: 314441,   // مؤكّد — دُفعت في يوليو 2026
     2026: 0,        // السنة الجارية — تُدفع لاحقاً
   },
+
+  /**
+   * سنوات دُفعت ضريبتها **بعد** LIVE_TRACKING_FROM، فهي مسجّلة أصلاً كعملية
+   * سحب مصنّفة «دفع ضريبة» داخل التطبيق. تبقى أرقامها أعلاه ليصحّ السجل
+   * الضريبي، لكنها تُستثنى من الرصيد الافتتاحي حتى لا تُحسب مرتين.
+   */
+  paidCountedLive: [2025],
   fundedNow: 117000, // مرصود حالياً للضريبة ولم يُدفع بعد
 };
 
@@ -145,13 +152,29 @@ export const LIVE_TRACKING_FROM = '2026-07-01';
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /** ملخص سنة واحدة: { salary, tax, months } — الضريبة محسوبة بالسلّم التصاعدي. */
+/**
+ * ملخص سنة واحدة: { year, salary, tax, months, paid, settled }
+ *
+ * الضريبة بالروبل الصحيح — مصلحة الضرائب لا تتعامل بالكوبيك.
+ *
+ * السنة المسدّدة تعتمد **المبلغ المدفوع فعلاً** لا نتيجة المعادلة، لأن
+ * المدفوع هو التقدير الرسمي المعروف، بينما المعادلة إعادة بناء تقريبية
+ * (الاستقطاع الشهري التراكمي يُقرَّب كل شهر، فيفرق عن التقريب السنوي
+ * بروبل أو اثنين). المعادلة تعمل على السنوات المفتوحة فقط.
+ */
 export function yearSummary(year) {
   const rows = TAX_HISTORY[year] || [];
   const salary = Math.round(rows.reduce((s, r) => s + r[1], 0) * 100) / 100;
+  const computed = Math.round(computeTax(year, salary));
+  const paid = Number((OPENING.paidSoFar || {})[year]) || 0;
+  const settled = paid > 0 && Math.abs(paid - computed) <= 2;
   return {
     year: Number(year),
     salary,
-    tax: computeTax(year, salary),
+    tax: settled ? paid : computed,
+    computed,
+    paid,
+    settled,
     months: rows.filter((r) => r[1] > 0).length,
   };
 }

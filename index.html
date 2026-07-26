@@ -7,7 +7,7 @@
   <meta name="description" content="تطبيق شخصي لتسجيل عمليات شراء وبيع السندات ومتابعة الأرباح" />
 
   <!-- PWA -->
-  <meta name="theme-color" content="#1E3A8A" />
+  <meta name="theme-color" content="#F7F8FA" />
   <meta name="color-scheme" content="light" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -17,27 +17,11 @@
   <link rel="icon" type="image/png" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="style.css" />
 
-  <!-- [مرحلة 3] أنماط نافذة التصنيف (معزولة، لا تمسّ التصميم) -->
-  <style>
-    .classify-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-    .classify-modal.hidden { display: none; }
-    .classify-card { background: #fff; border-radius: 16px; width: 100%; max-width: 440px; max-height: 85vh; display: flex; flex-direction: column; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
-    .classify-card h2 { margin: 0 0 4px; font-size: 18px; }
-    .classify-hint { margin: 0 0 12px; font-size: 13px; color: #6B7280; }
-    #classifyList { overflow-y: auto; flex: 1; }
-    .classify-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #F0F0F0; }
-    .classify-amount { font-weight: 600; font-size: 14px; }
-    .classify-amount.positive { color: #059669; }
-    .classify-amount.negative { color: #DC2626; }
-    .classify-date { font-size: 12px; color: #6B7280; }
-    .classify-select { padding: 8px; border: 1px solid #D1D5DB; border-radius: 8px; font-size: 14px; background: #fff; }
-    .classify-actions { display: flex; gap: 10px; margin-top: 14px; }
-    .classify-actions button { flex: 1; padding: 12px; border: 0; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
-    #classifyLaterBtn { background: #E5E7EB; color: #374151; }
-    #classifySaveBtn { background: #1E3A8A; color: #fff; }
-  </style>
 </head>
 <body>
 
@@ -55,40 +39,40 @@
     <!-- ============================================== الصفحة الرئيسية -->
     <section id="section-home" class="section active">
 
-      <!-- ملخص عام -->
+      <!-- [تعديل الواجهة] السندات الحالية — البطاقة الأولى -->
       <div class="card">
-        <h2><span class="icon">💰</span> الملخص</h2>
-        <div class="summary-grid">
-          <div class="metric">
-            <span class="label">القيمة الحالية</span>
-            <span id="sumCurrentValue" class="value neutral tabular">—</span>
-          </div>
-          <div class="metric">
-            <span class="label">إجمالي التكلفة</span>
-            <span id="sumTotalCost" class="value neutral tabular">—</span>
-          </div>
-          <div class="metric">
-            <span class="label">ربح غير محقق</span>
-            <span id="sumUnrealized" class="value neutral tabular">—</span>
-          </div>
-          <div class="metric">
-            <span class="label">ربح محقق (من البيع)</span>
-            <span id="sumRealized" class="value neutral tabular">—</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- السندات الحالية -->
-      <div class="card">
-        <h2><span class="icon">📊</span> السندات الحالية</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg></span> السندات الحالية</h2>
         <div id="holdingsList">
           <p class="empty">لا توجد سندات مملوكة حالياً</p>
         </div>
       </div>
 
+      <!-- ملخص عام -->
+      <div class="card">
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg></span> الملخص</h2>
+        <div class="summary-grid">
+          <div class="metric">
+            <span class="label">قيمة المحفظة</span>
+            <span id="sumPortfolioValue" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">الربح المحقق</span>
+            <span id="sumRealized" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">الربح المتوقع</span>
+            <span id="sumExpected" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">نسبة الربح من الإيداعات</span>
+            <span id="sumReturnPct" class="value neutral tabular">—</span>
+          </div>
+        </div>
+      </div>
+
       <!-- [تعديل الضريبة] صندوق الضريبة -->
       <div class="card">
-        <h2><span class="icon">⏳</span> صندوق الضريبة</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg></span> صندوق الضريبة</h2>
         <div class="summary-grid">
           <div class="metric">
             <span class="label">المستحق</span>
@@ -103,23 +87,27 @@
             <span id="taxFunded" class="value neutral tabular">—</span>
           </div>
           <div class="metric">
-            <span class="label">الناقص</span>
-            <span id="taxGap" class="value neutral tabular">—</span>
+            <span class="label">المستحق للدفع</span>
+            <span id="taxOwed" class="value neutral tabular">—</span>
           </div>
         </div>
       </div>
 
-      <!-- [تعديل الضريبة] الملخص السنوي -->
-      <div class="card">
-        <h2><span class="icon">🧾</span> الضريبة حسب السنة</h2>
-        <div id="taxYearsList"><p class="empty">—</p></div>
-      </div>
+      <!-- [تعديل الواجهة] التنبيهات — قائمة منسدلة، قبل الأخير -->
+      <details class="card accordion">
+        <summary><h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span> التنبيهات</h2></summary>
+        <div class="accordion-body">
+          <div id="alertsList"><p class="empty">لا تنبيهات حالياً</p></div>
+        </div>
+      </details>
 
-      <!-- [مرحلة 10] التنبيهات -->
-      <div class="card">
-        <h2><span class="icon">🔔</span> التنبيهات</h2>
-        <div id="alertsList"><p class="empty">لا تنبيهات حالياً</p></div>
-      </div>
+      <!-- [تعديل الواجهة] السجل الضريبي — قائمة منسدلة، الأخير -->
+      <details class="card accordion">
+        <summary><h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg></span> السجل الضريبي</h2></summary>
+        <div class="accordion-body">
+          <div id="taxYearsList"><p class="empty">—</p></div>
+        </div>
+      </details>
 
     </section>
 
@@ -127,7 +115,7 @@
     <section id="section-history" class="section">
       <!-- [مرحلة 8] فلاتر وتقرير -->
       <div class="card">
-        <h2><span class="icon">🔍</span> فلترة وتقرير</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg></span> فلترة وتقرير</h2>
         <div class="field-row">
           <div class="field">
             <label for="filterCategory">النوع</label>
@@ -149,7 +137,7 @@
         <div id="reportSummary"></div>
       </div>
       <div class="card">
-        <h2><span class="icon">📜</span> سجل العمليات</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span> سجل العمليات</h2>
         <div id="txList">
           <p class="empty">لا توجد عمليات مسجلة بعد</p>
         </div>
@@ -159,25 +147,25 @@
     <!-- [مرحلة 7] التحليلات -->
     <section id="section-analytics" class="section">
       <div class="card">
-        <h2><span class="icon">📈</span> الدخل حسب السنة</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg></span> الدخل حسب السنة</h2>
         <div id="analyticsIncomeYear"><p class="empty">—</p></div>
       </div>
       <div class="card">
-        <h2><span class="icon">🏦</span> الاستحقاقات حسب السنة</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22h18"/><path d="M6 18v-7"/><path d="M10 18v-7"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M12 2l9 5H3l9-5Z"/></svg></span> الاستحقاقات حسب السنة</h2>
         <div id="analyticsRedemptions"><p class="empty">—</p></div>
       </div>
       <div class="card">
-        <h2><span class="icon">💹</span> الربح المحقق حسب السند</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="M16.71 13.88l.7.71-2.82 2.82"/></svg></span> الربح المحقق حسب السند</h2>
         <div id="analyticsProfitBond"><p class="empty">—</p></div>
       </div>
       <div class="card">
-        <h2><span class="icon">📅</span> الدخل حسب الشهر</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg></span> الدخل حسب الشهر</h2>
         <div id="analyticsIncomeMonth"><p class="empty">—</p></div>
       </div>
 
       <!-- [مرحلة 9] العائد المتوقع حتى الاستحقاق -->
       <div class="card">
-        <h2><span class="icon">🎯</span> العائد المتوقع حتى الاستحقاق</h2>
+        <h2><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span> العائد المتوقع حتى الاستحقاق</h2>
         <div class="summary-grid">
           <div class="metric">
             <span class="label">عائد رأس المال</span>
@@ -201,16 +189,16 @@
   <!-- ======================================================= شريط التنقل -->
   <nav class="bottom-nav">
     <button type="button" class="nav-btn active" data-target="section-home">
-      <span class="nav-icon">🏠</span>
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></span>
       الرئيسية
     </button>
-    <button type="button" class="nav-btn" data-target="section-history">
-      <span class="nav-icon">📜</span>
-      العمليات
-    </button>
     <button type="button" class="nav-btn" data-target="section-analytics">
-      <span class="nav-icon">📈</span>
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg></span>
       تحليلات
+    </button>
+    <button type="button" class="nav-btn" data-target="section-history">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+      العمليات
     </button>
   </nav>
 
@@ -218,7 +206,7 @@
   <div id="installBanner" class="install-banner hidden">
     <p>ثبّت التطبيق على شاشتك الرئيسية لتفتحه بسرعة</p>
     <button type="button" id="installYesBtn" class="install-yes">تثبيت</button>
-    <button type="button" id="installCloseBtn" class="btn-icon-close">✕</button>
+    <button type="button" id="installCloseBtn" class="btn-icon-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
   </div>
 
   <!-- [مرحلة 3] نافذة تصنيف العمليات (تظهر عند وجود غير مصنّف) -->
@@ -231,6 +219,15 @@
         <button type="button" id="classifyLaterBtn">لاحقاً</button>
         <button type="button" id="classifySaveBtn">حفظ الكل</button>
       </div>
+    </div>
+  </div>
+
+  <!-- [تعديل الواجهة] نافذة تفاصيل السند -->
+  <div id="bondModal" class="bond-modal hidden">
+    <div class="bond-modal-card">
+      <h2 id="bondModalTitle">—</h2>
+      <div id="bondModalBody"></div>
+      <button type="button" id="bondModalClose">إغلاق</button>
     </div>
   </div>
 

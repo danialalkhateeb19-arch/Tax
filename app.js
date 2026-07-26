@@ -213,11 +213,12 @@ function renderAll() {
   renderReport();
 }
 
-// [مرحلة 2] الربح المحقق من عمليات البيع في الأرشيف (متوسط تكلفة، بلا عمولات).
+// [تعديل] الربح المحقق من الأرشيف (متوسط تكلفة، بلا عمولات).
+// يشمل ثلاثة مصادر: فرق البيع، فرق الاستحقاق، والكوبونات.
 function computeRealizedFromArchive() {
   const byFigi = {};
   const sorted = [...archiveOps]
-    .filter((o) => o.figi && (o.category === 'buy' || o.category === 'sell'))
+    .filter((o) => o.figi && ['buy', 'sell', 'redemption'].includes(o.category))
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
   let realized = 0;
   for (const o of sorted) {
@@ -226,14 +227,17 @@ function computeRealizedFromArchive() {
       h.qty += o.quantity || 0;
       h.cost += Math.abs(o.payment || 0);
     } else {
+      // بيع أو استحقاق: الربح = المقبوض − تكلفة الكمية الخارجة.
+      // في الاستحقاق قد لا تُرجع تنكوف كمية، فنأخذ كامل المركز المتبقي.
       const avg = h.qty > 0 ? h.cost / h.qty : 0;
-      const soldQty = Math.min(o.quantity || 0, h.qty);
-      realized += (o.payment || 0) - avg * soldQty;
-      h.qty -= soldQty;
-      h.cost -= avg * soldQty;
+      const raw = o.quantity || 0;
+      const outQty = o.category === 'redemption' && raw <= 0 ? h.qty : Math.min(raw, h.qty);
+      realized += (o.payment || 0) - avg * outQty;
+      h.qty -= outQty;
+      h.cost -= avg * outQty;
     }
   }
-  // [تعديل] + كل الكوبونات المستلمة (بقرارك: الربح المحقق يشملها).
+  // + كل الكوبونات المستلمة.
   const coupons = archiveOps.reduce((sum, o) => sum + (o.category === 'coupon' ? (o.payment || 0) : 0), 0);
   return realized + coupons;
 }
@@ -251,19 +255,9 @@ async function loadPortfolio() {
   renderAll();
 }
 
+// [تعديل الواجهة] بطاقة الملخص — أربعة أرقام.
 function renderSummary() {
-  const bonds = livePositions.filter((p) => p.instrumentType === 'bond' && (p.quantity || 0) > 0.0001);
-  let currentValue = 0; // قيمة السندات بالسعر الحالي
-  let costBasis = 0;    // تكلفة الشراء (للربح غير المحقق — مؤقت حتى نستبدل البطاقة)
-  for (const p of bonds) {
-    const qty = p.quantity || 0;
-    const price = (p.currentPrice != null ? p.currentPrice : p.averagePositionPrice) || 0;
-    currentValue += qty * price;
-    costBasis += qty * (p.averagePositionPrice || 0);
-  }
-  const unrealized = currentValue - costBasis;
-
-  // [تعديل] إجمالي التكلفة = قيمة الأوراق المالية + النقد في الحساب.
+  // 1) قيمة المحفظة = كل الأوراق المالية بالسعر الحالي + النقد.
   let securitiesValue = 0;
   let cash = 0;
   for (const p of livePositions) {
@@ -272,17 +266,26 @@ function renderSummary() {
     if (p.instrumentType === 'currency') cash += qty * price;
     else securitiesValue += qty * price;
   }
-  const totalAssets = securitiesValue + cash;
+  const portfolioValue = securitiesValue + cash;
 
-  // [تعديل] الربح المحقق = فرق البيع/الشراء لكل سند + كل الكوبونات المستلمة.
-  // (الاستحقاقات تبقى مستثناة — رأس مال عائد، وليست ربحاً.)
-  const coupons = archiveOps.reduce((sum, o) => sum + (o.category === 'coupon' ? (o.payment || 0) : 0), 0);
-  const realized = computeRealizedFromArchive() + coupons;
+  // 2) الربح المحقق = فرق البيع/الشراء + الكوبونات المستلمة.
+  //    (الدالة تضيف الكوبونات داخلها — لا تُضاف هنا مرة ثانية.)
+  const realized = computeRealizedFromArchive();
 
-  setMetric('sumCurrentValue', formatMoney(currentValue), 'neutral');
-  setMetric('sumTotalCost', formatMoney(totalAssets), 'neutral');
-  setMetric('sumUnrealized', formatMoney(unrealized), toneClass(unrealized));
+  // 3) الربح المتوقع حتى الاستحقاق = عائد رأس المال + الكوبونات المتبقية.
+  const expected = expectedReturnToMaturity().total;
+
+  // 4) نسبة الربح من رأس المال المودع = الربح المحقق ÷ مجموع الإيداعات.
+  const deposits = archiveOps.reduce(
+    (sum, o) => sum + (o.category === 'deposit' ? (o.payment || 0) : 0),
+    0,
+  );
+  const pct = deposits > 0 ? (realized / deposits) * 100 : null;
+
+  setMetric('sumPortfolioValue', formatMoney(portfolioValue), 'neutral');
   setMetric('sumRealized', formatMoney(realized), toneClass(realized));
+  setMetric('sumExpected', formatMoney(expected), toneClass(expected));
+  setMetric('sumReturnPct', pct == null ? '—' : `${pct.toFixed(2)}%`, pct == null ? 'neutral' : toneClass(pct));
 }
 
 function setMetric(id, text, tone) {
@@ -309,121 +312,82 @@ function renderHoldings() {
       const avgCost = p.averagePositionPrice || 0;
       const price = (p.currentPrice != null ? p.currentPrice : avgCost) || 0;
       const value = qty * price;
-      const pl = value - qty * avgCost;
-      const tone = toneClass(pl);
-      const title = p.ticker || p.name || p.figi || '—';
-      const maturity = p.maturityDate ? String(p.maturityDate).slice(0, 10) : null;
-      const extra =
-        maturity || p.couponQuantityPerYear
-          ? `<div class="holding-qty">الاستحقاق: ${maturity ?? '—'} · دفعات كوبون/سنة: ${p.couponQuantityPerYear ?? '—'}</div>`
-          : '';
+      const cost = qty * avgCost;
+      const pl = value - cost;
+      const pct = cost > 0 ? (pl / cost) * 100 : 0;
+
+      // التغير تراكمي منذ الشراء (وليس يومياً): السعر الحالي مقابل متوسط
+      // تكلفتك. يتراكم عبر الأيام — يومان بـ‏−1٪ يظهران ‏−2٪.
+      const chg = pl;
+      const chgPct = pct;
+      const up = chg >= 0;
+      const tone = up ? 'positive' : 'negative';
+      const title = p.name || p.ticker || p.figi || '—';
       return `
-        <div class="holding-row">
-          <div class="holding-top">
-            <div>
-              <div class="holding-symbol">${escapeHtml(title)}</div>
-              <div class="holding-qty">الكمية: ${formatQty(qty)} · متوسط التكلفة: ${formatMoney(avgCost)} · السعر الحالي: ${formatMoney(price)}</div>
-            </div>
-            <div class="holding-value">
-              <div class="amount tabular">${formatMoney(value)}</div>
-              <div class="pl tabular ${tone}">${pl >= 0 ? '+' : ''}${formatMoney(pl)}</div>
-            </div>
+        <div class="bond-card" data-figi="${escapeHtml(String(p.figi || ''))}">
+          <div class="bond-name">${escapeHtml(title)}</div>
+          <div class="bond-value tabular">${formatMoney(value)} ₽</div>
+          <div class="bond-sub">
+            <span>الكمية: ${formatQty(qty)}</span>
           </div>
-          ${extra}
+          <div class="bond-change ${tone} tabular">
+            <span class="bond-arrow">${up ? '▲' : '▼'}</span>
+            ${up ? '+' : '−'}${formatMoney(Math.abs(chg))} ₽
+            <span class="bond-pct">(${up ? '+' : '−'}${Math.abs(chgPct).toFixed(2)}%)</span>
+            <span class="bond-chg-label">منذ الشراء</span>
+          </div>
         </div>`;
     })
     .join('');
 }
 
-async function fetchMoexBondInfo(symbol) {
-  const boards = ['TQOB', 'TQCB', 'TQIR'];
-  for (const board of boards) {
-    try {
-      const url = `https://iss.moex.com/iss/engines/stock/markets/bonds/boards/${board}/securities/${encodeURIComponent(symbol)}.json?iss.meta=off`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const json = await res.json();
-      const cols = json?.description?.columns;
-      const rows = json?.description?.data;
-      if (!Array.isArray(cols) || !Array.isArray(rows)) continue;
+// [تعديل الواجهة] نافذة تفاصيل السند — عرض فقط، تقرأ من نفس بيانات المحفظة.
+function openBondModal(figi) {
+  const p = livePositions.find((x) => String(x.figi) === String(figi));
+  if (!p) return;
+  const qty = p.quantity || 0;
+  const avgCost = p.averagePositionPrice || 0;
+  const price = (p.currentPrice != null ? p.currentPrice : avgCost) || 0;
+  const info = bondInfo[p.ticker] || {};
+  const coupons = p.couponQuantityPerYear ?? info.paymentsPerYear ?? null;
+  const maturity = p.maturityDate
+    ? String(p.maturityDate).slice(0, 10)
+    : (info.maturityDate || null);
 
-      const nameIdx = cols.indexOf('name');
-      const valueIdx = cols.indexOf('value');
-      if (nameIdx === -1 || valueIdx === -1) continue;
+  const rows = [
+    ['عدد الكوبونات السنوية', coupons != null ? `${coupons}` : '—'],
+    ['تاريخ الاستحقاق', maturity || '—'],
+    ['الكمية', formatQty(qty)],
+    ['متوسط سعر الشراء', `${formatMoney(avgCost)} ₽`],
+    ['السعر الحالي', `${formatMoney(price)} ₽`],
+  ];
 
-      const fields = {};
-      rows.forEach((r) => (fields[r[nameIdx]] = r[valueIdx]));
-
-      const maturityDate = /^\d{4}-\d{2}-\d{2}$/.test(fields['MATDATE']) ? fields['MATDATE'] : null;
-      const couponValue = fields['COUPONVALUE'] !== undefined ? parseFloat(fields['COUPONVALUE']) : null;
-      const couponPeriod = fields['COUPONPERIOD'] !== undefined ? parseFloat(fields['COUPONPERIOD']) : null;
-      const paymentsPerYear = couponPeriod ? Math.round(365 / couponPeriod) : null;
-
-      if (!maturityDate && couponValue === null) continue;
-      return { maturityDate, couponValue, paymentsPerYear };
-    } catch {
-      continue;
-    }
-  }
-  return null;
+  document.getElementById('bondModalTitle').textContent = p.name || p.ticker || p.figi || '—';
+  document.getElementById('bondModalBody').innerHTML = rows
+    .map(([k, v]) => `<div class="bond-detail-row"><span>${k}</span><span class="tabular">${escapeHtml(v)}</span></div>`)
+    .join('');
+  document.getElementById('bondModal').classList.remove('hidden');
 }
 
-async function saveMoexBondInfoIfFound(symbol) {
-  if (!bondInfoCollection) return;
-  const info = await fetchMoexBondInfo(symbol);
-  if (!info) return;
-  try {
-    await setDoc(doc(bondInfoCollection, symbol), { symbol, ...info, updatedAt: serverTimestamp() });
-  } catch {
-    // تجاهل بصمت
-  }
+function closeBondModal() {
+  document.getElementById('bondModal').classList.add('hidden');
 }
 
-async function fetchMoexPrice(symbol) {
-  const boards = ['TQOB', 'TQCB', 'TQIR'];
-  for (const board of boards) {
-    try {
-      const url = `https://iss.moex.com/iss/engines/stock/markets/bonds/boards/${board}/securities/${encodeURIComponent(symbol)}.json?iss.meta=off`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const json = await res.json();
-      const cols = json?.marketdata?.columns;
-      const rows = json?.marketdata?.data;
-      if (!Array.isArray(cols) || !Array.isArray(rows) || !rows[0]) continue;
-      const idx = cols.indexOf('LAST');
-      const last = idx !== -1 ? rows[0][idx] : null;
-      if (last !== null && last !== undefined && !Number.isNaN(parseFloat(last))) {
-        return parseFloat(last);
-      }
-    } catch {
-      continue;
-    }
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.bond-card');
+  if (card) { openBondModal(card.dataset.figi); return; }
+  const modal = document.getElementById('bondModal');
+  if (modal && !modal.classList.contains('hidden')) {
+    if (e.target.id === 'bondModalClose' || e.target === modal) closeBondModal();
   }
-  return null;
-}
+});
 
-async function saveMoexPriceIfFound(symbol) {
-  if (!priceCollection) return;
-  const price = await fetchMoexPrice(symbol);
-  if (price === null) return;
-  try {
-    await setDoc(doc(priceCollection, symbol), { symbol, currentPrice: price, updatedAt: serverTimestamp() });
-  } catch {
-    // تجاهل بصمت — يبقى الإدخال اليدوي متاحاً
-  }
-}
+/* [تنظيف] حُذفت هنا خمس دوال ميّتة كانت تتصل بـ iss.moex.com مباشرة:
+ * fetchMoexBondInfo · saveMoexBondInfoIfFound · fetchMoexPrice
+ * saveMoexPriceIfFound · onPriceChange
+ * لم تكن مستدعاة من أي مكان. كل بياناتها يوفّرها تنكوف عبر الوسيط.
+ * اشتراكات Firestore (prices / bondInfo) بقيت كما هي للقراءة فقط. */
 
-async function onPriceChange(e) {
-  const symbol = e.target.dataset.priceSymbol;
-  const value = parseFloat(e.target.value);
-  if (Number.isNaN(value) || value < 0) return;
-
-  try {
-    await setDoc(doc(priceCollection, symbol), { symbol, currentPrice: value, updatedAt: serverTimestamp() });
-  } catch (err) {
-    showToast('تعذّر حفظ السعر: ' + err.message, true);
-  }
-}
 
 /* =====================================================================
  * العرض — سجل العمليات
@@ -660,8 +624,10 @@ function getTaxFunded() {
 
 /** مدفوع: خرج فعلاً لمصلحة الضرائب. */
 function getTaxPaid() {
-  const opening = Object.values(OPENING.paidSoFar)
-    .reduce((s, v) => s + (Number(v) || 0), 0);
+  const live = new Set((OPENING.paidCountedLive || []).map(String));
+  const opening = Object.entries(OPENING.paidSoFar)
+    .filter(([y]) => !live.has(String(y)))   // ما دُفع بعد نقطة البداية يأتي من العمليات
+    .reduce((s, [, v]) => s + (Number(v) || 0), 0);
   return archiveOps.reduce((sum, o) => {
     if (!afterCutoff(o)) return sum;
     const c = classifications[String(o.id)];
@@ -670,9 +636,14 @@ function getTaxPaid() {
   }, opening);
 }
 
-/** الناقص: كم باقي تجمع. سالب = عندك فائض. */
-function getTaxGap() {
-  return getTaxDue() - getTaxPaid() - getTaxFunded();
+/**
+ * المستحق للدفع = مجموع ضرائب السنوات **غير المسدّدة** فقط.
+ * السنة المقفلة لا تترك بقايا كسور، فلا يظهر رقم مثل 117,000.80.
+ */
+function getTaxOwed() {
+  return allYearSummaries()
+    .filter((y) => !y.settled)
+    .reduce((s, y) => s + y.tax, 0);
 }
 
 /* =====================================================================
@@ -699,7 +670,7 @@ function getAlerts() {
   const un = getUnclassifiedOps().length;
   if (un > 0) alerts.push({ icon: '🏷️', text: un + ' عملية بانتظار التصنيف' });
   // 3) حالة صندوق الضريبة
-  const gap = getTaxGap();
+  const gap = getTaxOwed() - getTaxFunded();
   if (gap > 1) {
     alerts.push({ icon: '⚠️', text: 'ينقصك ' + formatMoney(gap) + ' ₽ لتغطية الضريبة المستحقة' });
   } else {
@@ -720,12 +691,21 @@ function renderAlerts() {
 
 // [تعديل الضريبة] عرض صندوق الضريبة — أربع خانات.
 function renderTaxFund() {
-  const gap = getTaxGap();
+  const owed = getTaxOwed();
   setMetric('taxDue', formatMoney(getTaxDue()), 'neutral');
-  setMetric('taxFunded', formatMoney(getTaxFunded()), 'neutral');
   setMetric('taxPaid', formatMoney(getTaxPaid()), 'neutral');
-  setMetric('taxGap', formatMoney(gap), gap > 0 ? 'negative' : 'positive');
+  setMetric('taxFunded', formatMoney(getTaxFunded()), 'neutral');
+  setMetric('taxOwed', formatMoney(owed), owed > getTaxFunded() ? 'negative' : 'neutral');
   renderTaxYears();
+}
+
+// [تعديل الواجهة] صياغة عدد الأشهر بالعربية الفصيحة.
+function monthsLabel(n) {
+  if (n === 0) return 'لا أشهر';
+  if (n === 1) return 'شهر واحد';
+  if (n === 2) return 'شهران';
+  if (n <= 10) return `${n} أشهر`;
+  return `${n} شهراً`;
 }
 
 // [تعديل الضريبة] الملخص السنوي — للعرض فقط، من tax-data.js.
@@ -735,11 +715,16 @@ function renderTaxYears() {
   const paid = OPENING.paidSoFar || {};
   el.innerHTML = allYearSummaries()
     .map((y) => {
-      const p = Number(paid[y.year]) || 0;
-      const done = p >= y.tax - 1; // فرق أقل من روبل = مدفوعة
-      return `<div class="holding-row">
-        <div class="holding-name">${y.year} <span class="holding-qty">${y.months} شهر · راتب ${formatMoney(y.salary)} ₽</span></div>
-        <div class="holding-value tabular">${done ? '✅' : '⏳'} ${formatMoney(y.tax)} ₽</div>
+      const done = y.settled; // نفس قاعدة التسوية المستخدمة في الحساب
+      return `<div class="tax-year-row">
+        <div class="tax-year-main">
+          <div class="tax-year-num">${y.year}</div>
+          <div class="tax-year-salary">الراتب السنوي - ${formatMoney(y.salary)} ₽</div>
+        </div>
+        <div class="tax-year-side">
+          <div class="tax-year-due tabular">${done ? '✅' : '⏳'} ${formatMoney(y.tax)} ₽</div>
+          <div class="tax-year-months">${monthsLabel(y.months)}</div>
+        </div>
       </div>`;
     })
     .join('');
