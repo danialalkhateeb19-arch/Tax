@@ -97,7 +97,6 @@ const SELF_EXPLAINED_TYPES = [19, 5, 8, 11, 13];
 let transactions = []; // [{ id, type: 'buy'|'sell', symbol, date, qty, price, commission }]
 let prices = {}; // { symbol: currentPrice }
 let bondInfo = {}; // { symbol: { maturityDate, couponValue, paymentsPerYear } }
-let selectedType = 'buy';
 let livePositions = []; // [مرحلة 2] المحفظة الحيّة من تنكوف
 let archiveOps = [];     // [مرحلة 2] أرشيف العمليات من Firestore
 let classifications = {}; // [مرحلة 3] قراراتي (operationId -> قرار)
@@ -131,73 +130,10 @@ function showToast(message, isError = false) {
   showToast._t = window.setTimeout(() => el.classList.add('hidden'), 2600);
 }
 
-/* =====================================================================
- * محرك الحساب — بطريقة متوسط التكلفة (Average Cost)
- * ---------------------------------------------------------------------
- * لكل رمز سند: نمر على عملياته بترتيب التاريخ.
- * عند الشراء: تُضاف الكمية والتكلفة لمتوسط التكلفة الحالي.
- * عند البيع: الربح المحقق = سعر البيع - متوسط التكلفة عند لحظة البيع،
- * مضروباً في الكمية المباعة، مطروحاً منه العمولة.
- * ===================================================================== */
-function computeHoldings(txList) {
-  const bySymbol = {};
 
-  const sorted = [...txList].sort(
-    (a, b) => a.date.localeCompare(b.date) || (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0),
-  );
 
-  for (const tx of sorted) {
-    if (!bySymbol[tx.symbol]) {
-      bySymbol[tx.symbol] = { symbol: tx.symbol, qty: 0, totalCost: 0, realizedPL: 0 };
-    }
-    const h = bySymbol[tx.symbol];
 
-    if (tx.type === 'buy') {
-      h.qty += tx.qty;
-      h.totalCost += tx.qty * tx.price + tx.commission;
-    } else {
-      // بيع: نحسب الربح المحقق بناءً على متوسط التكلفة الحالي، ثم نخفّض
-      // الكمية والتكلفة الإجمالية بما يوازي الجزء المباع.
-      const avgCost = h.qty > 0 ? h.totalCost / h.qty : 0;
-      const soldQty = Math.min(tx.qty, h.qty); // حماية إن كانت البيانات القديمة غير متسقة
-      const proceeds = soldQty * tx.price - tx.commission;
-      const costOfSold = avgCost * soldQty;
-      h.realizedPL += proceeds - costOfSold;
-      h.qty -= soldQty;
-      h.totalCost -= costOfSold;
-    }
-  }
 
-  return Object.values(bySymbol);
-}
-
-function computeSummary(holdings) {
-  let currentValue = 0;
-  let totalCost = 0;
-  let realizedPL = 0;
-
-  for (const h of holdings) {
-    realizedPL += h.realizedPL;
-    if (h.qty > 0.0001) {
-      const price = prices[h.symbol] ?? h.totalCost / h.qty; // نستخدم متوسط التكلفة كتقدير احتياطي إن لم يُدخل المستخدم سعراً
-      currentValue += h.qty * price;
-      totalCost += h.totalCost;
-    }
-  }
-
-  const unrealizedPL = currentValue - totalCost;
-
-  return { currentValue, totalCost, unrealizedPL, realizedPL };
-}
-
-/* =====================================================================
- * قدرة بيع متاحة لكل رمز — تُستخدم للتحقق قبل تسجيل عملية بيع
- * ===================================================================== */
-function availableQtyFor(symbol) {
-  const holdings = computeHoldings(transactions);
-  const h = holdings.find((x) => x.symbol === symbol);
-  return h ? h.qty : 0;
-}
 
 /* =====================================================================
  * العرض — الملخص
@@ -693,16 +629,6 @@ function renderTransactions() {
     .join('');
 }
 
-async function onDeleteTransaction(e) {
-  const id = e.currentTarget.dataset.deleteId;
-  if (!confirm('حذف هذه العملية نهائياً؟')) return;
-  try {
-    await deleteDoc(doc(txCollection, id));
-    showToast('تم الحذف');
-  } catch (err) {
-    showToast('تعذّر الحذف: ' + err.message, true);
-  }
-}
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -710,9 +636,6 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function escapeAttr(str) {
-  return String(str).replace(/"/g, '&quot;');
-}
 
 /* =====================================================================
  * التنقل بين الصفحتين
@@ -996,16 +919,6 @@ function renderTaxYears() {
  * [مرحلة 7 · 1/4] طبقة التحليلات — دوال تُحسب عند الطلب من الأرشيف، بلا تخزين.
  * ===================================================================== */
 // دخل الكوبونات (متضمّناً التوزيعات المضمومة) لكل سنة.
-function incomeByYear() {
-  const m = {};
-  for (const o of archiveOps) {
-    if (o.category === 'coupon' && o.date) {
-      const y = String(o.date).slice(0, 4);
-      m[y] = (m[y] || 0) + (o.payment || 0);
-    }
-  }
-  return m;
-}
 
 // دخل الكوبونات لكل شهر (YYYY-MM).
 function incomeByMonth() {
@@ -1032,45 +945,8 @@ function redemptionsByYear() {
 }
 
 // الربح المحقق لكل سند (figi) — متوسط تكلفة من الأرشيف.
-function realizedProfitByBond() {
-  const holdings = {};
-  const result = {};
-  const sorted = [...archiveOps]
-    .filter((o) => o.figi && (o.category === 'buy' || o.category === 'sell'))
-    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-  for (const o of sorted) {
-    const h = holdings[o.figi] || (holdings[o.figi] = { qty: 0, cost: 0 });
-    if (o.category === 'buy') {
-      h.qty += o.quantity || 0;
-      h.cost += Math.abs(o.payment || 0);
-    } else {
-      const avg = h.qty > 0 ? h.cost / h.qty : 0;
-      const soldQty = Math.min(o.quantity || 0, h.qty);
-      result[o.figi] = (result[o.figi] || 0) + ((o.payment || 0) - avg * soldQty);
-      h.qty -= soldQty;
-      h.cost -= avg * soldQty;
-    }
-  }
-  return result;
-}
 
-/* =====================================================================
- * [مرحلة 9 · 1/3] العائد المتوقع حتى الاستحقاق (من المحفظة الحيّة + الأرشيف)
- * ---------------------------------------------------------------------
- *  عائد رأس المال = (الاسمي − السعر الحالي) × الكمية  (دقيق، سحب نحو القيمة الاسمية).
- *  الكوبونات المتبقية = كوبونات آخر 12 شهراً لهذا السند × سنوات حتى الاستحقاق (تقديري).
- * ===================================================================== */
-function couponsLast12mByFigi() {
-  const cutoff = new Date();
-  cutoff.setFullYear(cutoff.getFullYear() - 1);
-  const m = {};
-  for (const o of archiveOps) {
-    if (o.category === 'coupon' && o.figi && o.date && new Date(o.date) >= cutoff) {
-      m[o.figi] = (m[o.figi] || 0) + (o.payment || 0);
-    }
-  }
-  return m;
-}
+
 
 
 /**
