@@ -86,23 +86,33 @@
         </div>
       </div>
 
-      <!-- [مرحلة 6] صندوق الضريبة -->
+      <!-- [تعديل الضريبة] صندوق الضريبة -->
       <div class="card">
         <h2><span class="icon">⏳</span> صندوق الضريبة</h2>
         <div class="summary-grid">
           <div class="metric">
-            <span class="label">مموّل للضريبة</span>
-            <span id="taxFunded" class="value neutral tabular">—</span>
+            <span class="label">المستحق</span>
+            <span id="taxDue" class="value neutral tabular">—</span>
           </div>
           <div class="metric">
-            <span class="label">مدفوع للضريبة</span>
+            <span class="label">المدفوع</span>
             <span id="taxPaid" class="value neutral tabular">—</span>
           </div>
           <div class="metric">
-            <span class="label">رصيد الصندوق</span>
-            <span id="taxBalance" class="value neutral tabular">—</span>
+            <span class="label">مرصود (لم يُدفع)</span>
+            <span id="taxFunded" class="value neutral tabular">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">الناقص</span>
+            <span id="taxGap" class="value neutral tabular">—</span>
           </div>
         </div>
+      </div>
+
+      <!-- [تعديل الضريبة] الملخص السنوي -->
+      <div class="card">
+        <h2><span class="icon">🧾</span> الضريبة حسب السنة</h2>
+        <div id="taxYearsList"><p class="empty">—</p></div>
       </div>
 
       <!-- [مرحلة 10] التنبيهات -->

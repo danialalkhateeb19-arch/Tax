@@ -24,6 +24,14 @@ import {
   writeBatch,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
+/* [تعديل الضريبة] بيانات الضريبة التاريخية — المصدر الثابت للمبلغ المستحق. */
+import {
+  LIVE_TRACKING_FROM,
+  OPENING,
+  allYearSummaries,
+  totalObligation,
+} from './tax-data.js';
+
 /* =====================================================================
  * إعدادات Firebase
  * ---------------------------------------------------------------------
@@ -576,6 +584,9 @@ async function syncOperations() {
 function needsClassification(op) {
   const pay = op.payment || 0;
   if (pay === 0) return false;
+  // [تعديل الضريبة] قفل التاريخ: كل ما قبل نقطة البداية محسوم في tax-data.js
+  // ولا يُسأل عنه إطلاقاً. هذا ما يمنع انتفاخ الرقم من سنوات سابقة.
+  if (String(op.date || '') < LIVE_TRACKING_FROM) return false;
   if (['buy', 'sell', 'coupon', 'redemption'].includes(op.category)) return false;
   if (SELF_EXPLAINED_TYPES.includes(op.typeRaw)) return false;
   return true; // حركة نقدية تحتاج تصنيفاً
@@ -616,24 +627,52 @@ async function saveClassifications(decisions) {
  *   مدفوع = مجموع السحوبات المصنّفة 'tax_paid' (بالقيمة المطلقة).
  *   الرصيد = مموّل − مدفوع.
  * ===================================================================== */
+/* =====================================================================
+ * [تعديل الضريبة] دورة الضريبة — أربعة أرقام بدل ثلاثة
+ * ---------------------------------------------------------------------
+ *   المستحق = من tax-data.js (ثابت، لا يُحسب من تنكوف أبداً).
+ *   المموّل  = رصيد افتتاحي + إيداعات 'tax' بعد نقطة البداية فقط.
+ *   المدفوع = مدفوعات السنوات السابقة + سحوبات 'tax_paid' بعد نقطة البداية.
+ *   الناقص  = المستحق − المدفوع − المموّل.
+ *
+ * ملاحظة مهمة: كل جمع هنا يتجاهل ما قبل LIVE_TRACKING_FROM، حتى لو بقيت
+ * تصنيفات قديمة محفوظة في Firestore — فلا يتكرر انتفاخ الرقم.
+ * ===================================================================== */
+function afterCutoff(o) {
+  return String(o.date || '') >= LIVE_TRACKING_FROM;
+}
+
+/** إجمالي الضريبة المستحقة عليك عبر كل السنوات. */
+function getTaxDue() {
+  return totalObligation();
+}
+
+/** مموّل: مرصود في الحساب ولم يُدفع بعد. */
 function getTaxFunded() {
+  const opening = Number(OPENING.fundedNow) || 0;
   return archiveOps.reduce((sum, o) => {
+    if (!afterCutoff(o)) return sum;
     const c = classifications[String(o.id)];
     if (c && c.kind === 'deposit' && c.categoryId === 'tax') return sum + (o.payment || 0);
     return sum;
-  }, 0);
+  }, opening);
 }
 
+/** مدفوع: خرج فعلاً لمصلحة الضرائب. */
 function getTaxPaid() {
+  const opening = Object.values(OPENING.paidSoFar)
+    .reduce((s, v) => s + (Number(v) || 0), 0);
   return archiveOps.reduce((sum, o) => {
+    if (!afterCutoff(o)) return sum;
     const c = classifications[String(o.id)];
     if (c && c.kind === 'withdrawal' && c.categoryId === 'tax_paid') return sum + Math.abs(o.payment || 0);
     return sum;
-  }, 0);
+  }, opening);
 }
 
-function getTaxBalance() {
-  return getTaxFunded() - getTaxPaid();
+/** الناقص: كم باقي تجمع. سالب = عندك فائض. */
+function getTaxGap() {
+  return getTaxDue() - getTaxPaid() - getTaxFunded();
 }
 
 /* =====================================================================
@@ -659,9 +698,14 @@ function getAlerts() {
   // 2) عمليات بانتظار التصنيف
   const un = getUnclassifiedOps().length;
   if (un > 0) alerts.push({ icon: '🏷️', text: un + ' عملية بانتظار التصنيف' });
-  // 3) رصيد صندوق الضريبة (مموّل لم يُدفع بعد)
-  const bal = getTaxBalance();
-  if (bal > 0) alerts.push({ icon: '⏳', text: 'رصيد صندوق الضريبة ' + formatMoney(bal) + ' ₽ (مموّل لم يُدفع بعد)' });
+  // 3) حالة صندوق الضريبة
+  const gap = getTaxGap();
+  if (gap > 1) {
+    alerts.push({ icon: '⚠️', text: 'ينقصك ' + formatMoney(gap) + ' ₽ لتغطية الضريبة المستحقة' });
+  } else {
+    const funded = getTaxFunded();
+    if (funded > 0) alerts.push({ icon: '✅', text: 'الضريبة مغطّاة بالكامل — مرصود ' + formatMoney(funded) + ' ₽ لم يُدفع بعد' });
+  }
   return alerts;
 }
 
@@ -674,12 +718,31 @@ function renderAlerts() {
   el.innerHTML = alerts.map((a) => `<div class="holding-qty">${a.icon} ${escapeHtml(a.text)}</div>`).join('');
 }
 
-// [مرحلة 6] عرض صندوق الضريبة في بطاقته.
+// [تعديل الضريبة] عرض صندوق الضريبة — أربع خانات.
 function renderTaxFund() {
-  const balance = getTaxBalance();
+  const gap = getTaxGap();
+  setMetric('taxDue', formatMoney(getTaxDue()), 'neutral');
   setMetric('taxFunded', formatMoney(getTaxFunded()), 'neutral');
   setMetric('taxPaid', formatMoney(getTaxPaid()), 'neutral');
-  setMetric('taxBalance', formatMoney(balance), balance >= 0 ? 'positive' : 'negative');
+  setMetric('taxGap', formatMoney(gap), gap > 0 ? 'negative' : 'positive');
+  renderTaxYears();
+}
+
+// [تعديل الضريبة] الملخص السنوي — للعرض فقط، من tax-data.js.
+function renderTaxYears() {
+  const el = document.getElementById('taxYearsList');
+  if (!el) return;
+  const paid = OPENING.paidSoFar || {};
+  el.innerHTML = allYearSummaries()
+    .map((y) => {
+      const p = Number(paid[y.year]) || 0;
+      const done = p >= y.tax - 1; // فرق أقل من روبل = مدفوعة
+      return `<div class="holding-row">
+        <div class="holding-name">${y.year} <span class="holding-qty">${y.months} شهر · راتب ${formatMoney(y.salary)} ₽</span></div>
+        <div class="holding-value tabular">${done ? '✅' : '⏳'} ${formatMoney(y.tax)} ₽</div>
+      </div>`;
+    })
+    .join('');
 }
 
 /* =====================================================================
