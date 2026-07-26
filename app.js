@@ -1072,6 +1072,39 @@ function couponsLast12mByFigi() {
   return m;
 }
 
+
+/**
+ * [تعديل] العائد الفعلي حتى الاستحقاق (IRR) — بنفس منهجية تنكوف وبورصة
+ * موسكو، لكن على **متوسط سعر شرائك** لا على سعر السوق.
+ *
+ * يبني جدول التدفقات: كوبون في كل موعد حتى الاستحقاق، ثم القيمة الاسمية
+ * في النهاية. ثم يبحث عن معدل الخصم الذي يجعل قيمتها الحالية = تكلفتك.
+ * يُعاد null إن تعذّر — لا تخمين.
+ */
+function bondIRR({ cost, coupon, perYear, nominal, years }) {
+  if (!(cost > 0) || !(nominal > 0) || !(years > 0)) return null;
+  if (!(coupon >= 0) || !(perYear > 0)) return null;
+
+  const n = Math.max(0, Math.round(years * perYear));
+  const flows = [];
+  for (let k = 1; k <= n; k++) {
+    const t = years - (n - k) / perYear;
+    if (t > 0) flows.push([t, coupon]);
+  }
+  flows.push([years, nominal]);
+
+  const pv = (r) => flows.reduce((s, [t, c]) => s + c / Math.pow(1 + r, t), 0);
+
+  let lo = -0.95;
+  let hi = 5;
+  if ((pv(lo) - cost) * (pv(hi) - cost) > 0) return null;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (pv(mid) - cost > 0) lo = mid; else hi = mid;
+  }
+  return ((lo + hi) / 2) * 100;
+}
+
 function expectedReturnToMaturity() {
   const now = new Date();
   const rows = [];
@@ -1083,7 +1116,8 @@ function expectedReturnToMaturity() {
   for (const p of livePositions) {
     if (p.instrumentType !== 'bond' || !(p.quantity > 0) || !p.maturityDate) continue;
     const qty = p.quantity;
-    const price = (p.currentPrice != null ? p.currentPrice : p.averagePositionPrice) || 0;
+    // العائد محسوب على **تكلفتك الفعلية**، لا على سعر السوق.
+    const price = p.averagePositionPrice || p.currentPrice || 0;
     const m = moexData[p.ticker] || null;
     const nominal = p.nominal || (m && m.face) || 0;
     if (!(price > 0) || !(nominal > 0)) continue;
@@ -1101,10 +1135,10 @@ function expectedReturnToMaturity() {
     const invested = price * qty;
     const total = coupons == null ? null : coupons + capital;
 
-    // العائد السنوي: من بورصة موسكو مباشرة (نفس رقم تنكوف)، وإلا نحسبه.
-    const ytm = (m && m.ytm != null)
-      ? m.ytm
-      : (total != null && invested > 0 && years > 0 ? (total / invested) / years * 100 : null);
+    // العائد الفعلي السنوي على متوسط سعر شرائك.
+    const ytm = hasCoupon
+      ? bondIRR({ cost: price, coupon: unit, perYear, nominal, years })
+      : null;
 
     if (total != null) {
       totalCapital += capital;
