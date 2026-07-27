@@ -1190,12 +1190,15 @@ function renderExpectedReturn() {
 
   setMetric('ermYield', pct(r.ytm), tone(r.ytm));
   setMetric('ermCoupons', money(r.totalCoupons), tone(r.totalCoupons));
-  // [تعديل الإيداع] كم تبقّى من الضريبة **المستحقة** لم تغطّه أرباح السندات بعد.
-  // كان يعتمد على المدفوع فقط، فلا يتحرّك عند التعبئة — والآن يعكس كل إيداع.
-  const gap = getTaxOwed() - computeRealizedFromArchive();
+  // [تعديل الإيداع] العوائد مقابل الضريبة — مقياس تراكمي على عمر الحساب:
+  //   كل ما عاد من أموال الضريبة (كوبونات + فروق بيع + فروق استحقاق)
+  //   ناقص إجمالي التزامك الضريبي = المدفوع + المستحق المؤجَّل.
+  // (getTaxDue يساوي المدفوع + المستحق للدفع بالضبط، ولا يتضاعف لو سُدّدت سنة جزئياً.)
+  // سالب اليوم بطبيعة الحال، ويتحوّل موجباً يوم تسترد السندات كل ما دفعته.
+  const net = computeRealizedFromArchive() - getTaxDue();
   setMetric('ermTaxGap',
-    gap <= 0 ? 'مغطّاة بالكامل' : formatMoney(gap) + ' ₽',
-    gap <= 0 ? 'positive' : 'neutral');
+    (net >= 0 ? '+' : '−') + formatMoney(Math.abs(net)) + ' ₽',
+    net >= 0 ? 'positive' : 'negative');
   setMetric('ermTotal', money(r.total), tone(r.total));
 
   const el = document.getElementById('ermList');
