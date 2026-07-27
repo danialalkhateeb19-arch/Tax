@@ -60,6 +60,39 @@ export function computeTax(year, annualSalary) {
   return Math.round(tax * 100) / 100;
 }
 
+/**
+ * [تعديل الإيداع] العملية العكسية: كم راتباً يقابل مبلغ ضريبة معيّن؟
+ * تُطبَّق نفس الشرائح لكن بالاتجاه المعاكس، فتصحّ حتى عند تجاوز 2.4 مليون.
+ * مثال 2026: 11,700 ÷ 13٪ = 90,000 راتب.
+ */
+export function salaryForTax(year, tax) {
+  let remaining = tax;
+  let prev = 0;
+  let salary = 0;
+  for (const b of bracketsFor(year)) {
+    if (remaining <= 0) break;
+    const capacity = (b.upTo - prev) * b.rate; // أقصى ضريبة تستوعبها هذه الشريحة
+    const take = Math.min(remaining, capacity);
+    salary += take / b.rate;
+    remaining -= take;
+    prev = b.upTo;
+  }
+  return Math.round(salary * 100) / 100;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+ *  [تعديل الإيداع] مصدر الإيداعات الحيّة
+ * ───────────────────────────────────────────────────────────────────────
+ *  هذا الملف لا يعرف شيئاً عن تنكوف ولا Firestore. التطبيق (app.js) يسجّل
+ *  هنا دالة تُعيد مجموع الإيداعات المصنّفة «ضريبة» لسنة ما، فتُقرأ لحظياً
+ *  عند كل حساب — بلا تخزين أي قيمة مشتقّة.
+ * ─────────────────────────────────────────────────────────────────────── */
+let liveTaxDepositsFor = () => 0;
+
+export function setTaxDepositSource(fn) {
+  liveTaxDepositsFor = typeof fn === 'function' ? fn : () => 0;
+}
+
 /* ───────────────────────────────────────────────────────────────────────
  *  السجل الشهري — المصدر الأصلي كما في ملفك
  * ─────────────────────────────────────────────────────────────────────── */
@@ -164,8 +197,14 @@ export const LIVE_TRACKING_FROM = '2026-07-01';
  */
 export function yearSummary(year) {
   const rows = TAX_HISTORY[year] || [];
-  const salary = Math.round(rows.reduce((s, r) => s + r[1], 0) * 100) / 100;
-  const computed = Math.round(computeTax(year, salary));
+  const baseSalary = Math.round(rows.reduce((s, r) => s + r[1], 0) * 100) / 100;
+  // [تعديل الإيداع] كل إيداع مصنّف «ضريبة» = ضريبة شهر لم يُسجَّل بعد،
+  // فيُستخرج منه الراتب المقابل ويُضاف للسنة. الشهور المسجّلة أعلاه لا تتكرّر
+  // لأن الإيداعات تُحسب من LIVE_TRACKING_FROM فقط.
+  const extraTax = Math.max(0, Number(liveTaxDepositsFor(Number(year))) || 0);
+  const totalTax = computeTax(year, baseSalary) + extraTax;
+  const salary = extraTax > 0 ? salaryForTax(year, totalTax) : baseSalary;
+  const computed = Math.round(totalTax);
   const paid = Number((OPENING.paidSoFar || {})[year]) || 0;
   const settled = paid > 0 && Math.abs(paid - computed) <= 2;
   return {

@@ -30,6 +30,7 @@ import {
   OPENING,
   allYearSummaries,
   totalObligation,
+  setTaxDepositSource,
 } from './tax-data.js';
 
 /* =====================================================================
@@ -806,6 +807,22 @@ function getTaxFunded() {
   }, opening);
 }
 
+/**
+ * [تعديل الإيداع] مجموع الإيداعات المصنّفة «ضريبة» لسنة واحدة.
+ * تُقرأ لحظياً من الأرشيف + التصنيفات، وتُسلَّم لـ tax-data.js ليشتقّ منها
+ * راتب الشهر وضريبته — فيتحرّك الراتب والمستحق والسجل الضريبي مع كل تعبئة.
+ */
+function taxDepositsForYear(year) {
+  return archiveOps.reduce((sum, o) => {
+    if (!afterCutoff(o)) return sum;
+    if (String(o.date || '').slice(0, 4) !== String(year)) return sum;
+    const c = classifications[String(o.id)];
+    if (c && c.kind === 'deposit' && c.categoryId === 'tax') return sum + (o.payment || 0);
+    return sum;
+  }, 0);
+}
+setTaxDepositSource(taxDepositsForYear);
+
 /** مدفوع: خرج فعلاً لمصلحة الضرائب. */
 function getTaxPaid() {
   const live = new Set((OPENING.paidCountedLive || []).map(String));
@@ -1169,8 +1186,9 @@ function renderExpectedReturn() {
 
   setMetric('ermYield', pct(r.ytm), tone(r.ytm));
   setMetric('ermCoupons', money(r.totalCoupons), tone(r.totalCoupons));
-  // كم تبقّى من الضريبة المدفوعة لم تغطّه أرباح السندات بعد.
-  const gap = getTaxPaid() - computeRealizedFromArchive();
+  // [تعديل الإيداع] كم تبقّى من الضريبة **المستحقة** لم تغطّه أرباح السندات بعد.
+  // كان يعتمد على المدفوع فقط، فلا يتحرّك عند التعبئة — والآن يعكس كل إيداع.
+  const gap = getTaxOwed() - computeRealizedFromArchive();
   setMetric('ermTaxGap',
     gap <= 0 ? 'مغطّاة بالكامل' : formatMoney(gap) + ' ₽',
     gap <= 0 ? 'positive' : 'neutral');
