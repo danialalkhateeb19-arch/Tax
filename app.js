@@ -1194,10 +1194,10 @@ function renderExpectedReturn() {
   //   كل ما عاد من أموال الضريبة (كوبونات + فروق بيع + فروق استحقاق)
   //   ناقص إجمالي التزامك الضريبي = المدفوع + المستحق المؤجَّل.
   // (getTaxDue يساوي المدفوع + المستحق للدفع بالضبط، ولا يتضاعف لو سُدّدت سنة جزئياً.)
-  // سالب اليوم بطبيعة الحال، ويتحوّل موجباً يوم تسترد السندات كل ما دفعته.
+  // الإشارة لا تُطبع — اللون وحده يحملها: أحمر ناقص، أخضر زائد.
   const net = computeRealizedFromArchive() - getTaxDue();
   setMetric('ermTaxGap',
-    (net >= 0 ? '+' : '−') + formatMoney(Math.abs(net)) + ' ₽',
+    formatMoney(Math.abs(net)) + ' ₽',
     net >= 0 ? 'positive' : 'negative');
   setMetric('ermTotal', money(r.total), tone(r.total));
 

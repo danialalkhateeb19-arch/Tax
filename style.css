@@ -235,6 +235,13 @@ main { max-width: 480px; margin: 0 auto; padding: 18px 16px 0; }
 .value.negative { color: var(--color-negative); }
 .value.neutral  { color: var(--color-text); }
 
+/* [تعديل الإيداع] «العوائد مقابل الضريبة» رقم طويل (7 خانات + ₽)، فيُمنع
+   من الالتفاف ويُصغَّر تلقائياً بقدر عرض الخانة بدل أن ينزل سطراً ثانياً. */
+#ermTaxGap {
+  white-space: nowrap;
+  font-size: clamp(14px, 4.6vw, 20px);
+}
+
 /* ═════════════════════════════════════════════ بطاقة السند ═════════ */
 
 .bond-card {
