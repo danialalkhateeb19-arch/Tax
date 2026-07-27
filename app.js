@@ -808,18 +808,22 @@ function getTaxFunded() {
 }
 
 /**
- * [تعديل الإيداع] مجموع الإيداعات المصنّفة «ضريبة» لسنة واحدة.
+ * [تعديل الإيداع] الإيداعات المصنّفة «ضريبة» لسنة واحدة: المبلغ وعدد الشهور.
  * تُقرأ لحظياً من الأرشيف + التصنيفات، وتُسلَّم لـ tax-data.js ليشتقّ منها
  * راتب الشهر وضريبته — فيتحرّك الراتب والمستحق والسجل الضريبي مع كل تعبئة.
+ * كل إيداع = شهر واحد يُستحق عليه الدفع.
  */
 function taxDepositsForYear(year) {
-  return archiveOps.reduce((sum, o) => {
-    if (!afterCutoff(o)) return sum;
-    if (String(o.date || '').slice(0, 4) !== String(year)) return sum;
+  return archiveOps.reduce((acc, o) => {
+    if (!afterCutoff(o)) return acc;
+    if (String(o.date || '').slice(0, 4) !== String(year)) return acc;
     const c = classifications[String(o.id)];
-    if (c && c.kind === 'deposit' && c.categoryId === 'tax') return sum + (o.payment || 0);
-    return sum;
-  }, 0);
+    if (c && c.kind === 'deposit' && c.categoryId === 'tax') {
+      acc.tax += o.payment || 0;
+      acc.months += 1;
+    }
+    return acc;
+  }, { tax: 0, months: 0 });
 }
 setTaxDepositSource(taxDepositsForYear);
 

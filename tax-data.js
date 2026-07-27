@@ -87,10 +87,10 @@ export function salaryForTax(year, tax) {
  *  هنا دالة تُعيد مجموع الإيداعات المصنّفة «ضريبة» لسنة ما، فتُقرأ لحظياً
  *  عند كل حساب — بلا تخزين أي قيمة مشتقّة.
  * ─────────────────────────────────────────────────────────────────────── */
-let liveTaxDepositsFor = () => 0;
+let liveTaxDepositsFor = () => ({ tax: 0, months: 0 });
 
 export function setTaxDepositSource(fn) {
-  liveTaxDepositsFor = typeof fn === 'function' ? fn : () => 0;
+  liveTaxDepositsFor = typeof fn === 'function' ? fn : () => ({ tax: 0, months: 0 });
 }
 
 /* ───────────────────────────────────────────────────────────────────────
@@ -199,9 +199,11 @@ export function yearSummary(year) {
   const rows = TAX_HISTORY[year] || [];
   const baseSalary = Math.round(rows.reduce((s, r) => s + r[1], 0) * 100) / 100;
   // [تعديل الإيداع] كل إيداع مصنّف «ضريبة» = ضريبة شهر لم يُسجَّل بعد،
-  // فيُستخرج منه الراتب المقابل ويُضاف للسنة. الشهور المسجّلة أعلاه لا تتكرّر
-  // لأن الإيداعات تُحسب من LIVE_TRACKING_FROM فقط.
-  const extraTax = Math.max(0, Number(liveTaxDepositsFor(Number(year))) || 0);
+  // فيُستخرج منه الراتب المقابل ويُضاف للسنة مع شهره. الشهور المسجّلة أعلاه
+  // لا تتكرّر لأن الإيداعات تُحسب من LIVE_TRACKING_FROM فقط.
+  const live = liveTaxDepositsFor(Number(year)) || {};
+  const extraTax = Math.max(0, Number(live.tax) || 0);
+  const extraMonths = Math.max(0, Number(live.months) || 0);
   const totalTax = computeTax(year, baseSalary) + extraTax;
   const salary = extraTax > 0 ? salaryForTax(year, totalTax) : baseSalary;
   const computed = Math.round(totalTax);
@@ -214,7 +216,7 @@ export function yearSummary(year) {
     computed,
     paid,
     settled,
-    months: rows.filter((r) => r[1] > 0).length,
+    months: rows.filter((r) => r[1] > 0).length + extraMonths,
   };
 }
 
