@@ -1,8 +1,9 @@
 {
   "confirmed": {
-    "2026-07": "2026-07-26"
+    "2026-07": "2026-07-26",
+    "2026-08": "2026-09-07"
   },
-  "offset": 476360542,
+  "offset": 476360547,
   "lastReminder": "2026-09-07",
-  "lastMessageId": 22
+  "lastMessageId": null
 }
